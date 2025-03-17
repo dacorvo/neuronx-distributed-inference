@@ -8,7 +8,6 @@ END_TO_END_MODEL = "e2e_model"
 CONTEXT_ENCODING_MODEL = "context_encoding_model"
 TOKEN_GENERATION_MODEL = "token_generation_model"
 SPECULATION_MODEL = "speculation_model"
-MEDUSA_MODEL = "medusa_speculation_model"
 LM_HEAD_NAME = "lm_head.pt"
 
 BASE_COMPILER_WORK_DIR = "/tmp/nxd_model/"

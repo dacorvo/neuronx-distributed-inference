@@ -270,9 +270,6 @@ class NeuronApplicationBase(torch.nn.Module):
                 )
                 model_sd[updated_param_name] = model_sd[param_name]
                 del model_sd[param_name]
-        if os.path.exists(model_path + "/medusa_heads.pt"):
-            medusa_head = torch.load(model_path + "/medusa_heads.pt", map_location="cpu")
-            model_sd.update(medusa_head)
         model_sd = cls.convert_hf_to_neuron_state_dict(model_sd, config)
         if getattr(config, "tie_word_embeddings", False):
             cls.update_state_dict_for_tied_weights(model_sd)

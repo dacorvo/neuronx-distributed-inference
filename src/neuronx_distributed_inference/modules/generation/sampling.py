@@ -112,11 +112,6 @@ class Sampler(torch.nn.Module):
 
         assert self.on_device_sampling, "on device configs is not initialized"
 
-        if hasattr(neuron_config, "is_medusa"):
-            self.is_medusa = neuron_config.is_medusa
-        else:
-            self.is_medusa = False
-
         self.neuron_config = neuron_config
         self.do_sample = (
             do_sample
@@ -221,8 +216,6 @@ class Sampler(torch.nn.Module):
         temperature = sampling_params[:, 2].reshape(batch_size, 1)
 
         top_k_logits_values, top_k_logits_indices = self._top_k_masked(token_logits, top_k, dim)
-        if self.is_medusa:
-            return top_k_logits_indices
 
         if self.dynamic or torch.any(temperature != 1.0):
             top_k_logits_values = torch.divide(top_k_logits_values, temperature)
@@ -271,9 +264,7 @@ class Sampler(torch.nn.Module):
         dim = len(token_logits.shape) - 1  # vocab_size dimension
         top_k = sampling_params[:, 0].reshape(batch_size, 1)
 
-        if self.is_medusa:
-            return self._multinomial_sample(token_logits, sampling_params, return_values, dim)
-        elif self.do_sample and (self.dynamic or torch.any(top_k > 1)):  # top_k == 1 mean greedy
+        if self.do_sample and (self.dynamic or torch.any(top_k > 1)):  # top_k == 1 mean greedy
             return self._multinomial_sample(token_logits, sampling_params, return_values, dim)
         else:
             return self._argmax_sample(token_logits, return_values, dim)

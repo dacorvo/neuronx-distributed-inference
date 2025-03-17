@@ -4,12 +4,6 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional, Union
 
 import torch
-from neuronx_distributed.utils.medusa_utils import (
-    evaluate_posterior,
-    generate_candidates,
-    generate_medusa_buffers,
-    update_inference_inputs,
-)
 from transformers import AutoConfig, GenerationConfig, PretrainedConfig, PreTrainedModel
 from transformers.generation import GenerateDecoderOnlyOutput, SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
@@ -236,7 +230,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
 
         accepted_indices = kwargs.get("accepted_indices", None)
         current_length = kwargs.get("current_length", None)
-        medusa_mask = kwargs.get("medusa_mask", None)
         scatter_index = kwargs.get("scatter_index", None)
         position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
@@ -260,7 +253,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
                 "use_cache": kwargs.get("use_cache", False),
                 "attention_mask": attention_mask,
                 "adapter_ids": kwargs.get("adapter_ids", None),
-                "medusa_args": (accepted_indices, current_length, medusa_mask, scatter_index),
                 "sampling_params": sampling_params,
             }
         )
@@ -270,37 +262,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
         for arg in additional_kwargs:
             model_inputs.update({arg: kwargs.get(arg, None)})
 
-        return model_inputs
-
-    def prepare_medusa_inputs_for_generation(
-        self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
-    ):
-        if self.neuron_model.kv_cache_populated:
-            input_ids = input_ids[:, -self.neuron_config.medusa_speculation_length :]
-        position_ids = kwargs.get("position_ids")
-
-        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and past_key_values is None:
-            model_inputs = {"inputs_embeds": inputs_embeds}
-        else:
-            model_inputs = {"input_ids": input_ids}
-
-        model_inputs.update(
-            {
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "use_cache": kwargs.get("use_cache"),
-                "attention_mask": attention_mask,
-                "adapter_ids": kwargs.get("adapter_ids", None),
-                "sampling_params": kwargs.get("sampling_params", None),
-                "medusa_args": (
-                    kwargs.get("accepted_indices"),
-                    kwargs.get("current_length"),
-                    kwargs.get("medusa_mask"),
-                    kwargs.get("scatter_index"),
-                ),
-            }
-        )
         return model_inputs
 
     # We override this function because we want to change the way attention_mask
@@ -387,17 +348,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
         eos_token_id = generation_config.eos_token_id
         if not self.neuron_config.enable_fused_speculation:
             assistant_model = candidate_generator.assistant_model
-        if self.neuron_config.is_medusa:
-            # TODO: move this to sampling
-            return self._medusa_assisted_decoding(
-                input_ids,
-                assistant_model,
-                stopping_criteria,
-                pad_token_id,
-                eos_token_id,
-                **model_kwargs,
-            )
-        elif self.neuron_config.enable_fused_speculation:
+        if self.neuron_config.enable_fused_speculation:
             return self._fused_assisted_decoding(
                 input_ids,
                 stopping_criteria,
@@ -723,139 +674,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
 
         return returned_ids
 
-    def _medusa_assisted_decoding(
-        self,
-        input_ids,
-        assistant_model,
-        stopping_criteria,
-        pad_token_id,
-        eos_token_id,
-        **model_kwargs,
-    ):
-        medusa_kwargs = copy.deepcopy(model_kwargs)
-
-        mc_sim_7b_63 = self.neuron_config.medusa_tree
-
-        medusa_buffers = generate_medusa_buffers(mc_sim_7b_63)
-
-        model_inputs = self.prepare_inputs_for_generation(input_ids, **medusa_kwargs)
-
-        outputs = self(**model_inputs)
-
-        non_zero_input_ids = input_ids.nonzero()
-        cur_len = torch.tensor([non_zero_input_ids.size(0)], dtype=torch.int32)
-
-        logits, medusa_logits = self._extract_logits(outputs)
-
-        medusa_logits = medusa_logits[:, :, None, :]
-
-        accept_length = 0
-        final_accept_length = 0
-        new_token = 0
-        accept_lengths_tree = []
-        cur_length = cur_len[0].item() + 1
-        accept_lengths_tree.append(1)
-        count = 0
-        select_indices = torch.arange(
-            cur_len[0].item(),
-            cur_len[0].item() + self.neuron_config.num_medusa_heads + 1,
-            dtype=torch.int32,
-        )
-
-        for i in range(self.neuron_config.max_new_tokens):
-            count = count + 1
-            candidates, tree_candidates = generate_candidates(
-                medusa_logits,
-                logits,
-                medusa_buffers["tree_indices"],
-                medusa_buffers["retrieve_indices"],
-            )
-            position_ids = medusa_buffers["medusa_position_ids"] + input_ids.nonzero().shape[0]
-
-            medusa_kwargs = self._prepare_medusa_kwargs(
-                position_ids, cur_len, medusa_buffers, select_indices, medusa_kwargs
-            )
-
-            tree_candidates = tree_candidates.long()
-
-            model_inputs = self.prepare_medusa_inputs_for_generation(
-                tree_candidates, **medusa_kwargs
-            )
-
-            outputs = self(**model_inputs)
-
-            tree_logits, tree_medusa_logits = self._extract_logits(outputs)
-            logits = tree_logits[0, 0, medusa_buffers["retrieve_indices"]]
-            medusa_logits = tree_medusa_logits[:, 0, 0, medusa_buffers["retrieve_indices"]]
-
-            best_candidate, accept_length = evaluate_posterior(logits, candidates)
-            cur_len = torch.tensor([input_ids.nonzero().size(0) - 1], dtype=torch.int32)
-
-            input_ids, logits, medusa_logits, new_token, select_indices = update_inference_inputs(
-                input_ids[:, : (int(cur_len[0] + 1))],
-                candidates,
-                best_candidate,
-                accept_length,
-                medusa_buffers["retrieve_indices"],
-                outputs,
-                logits,
-                medusa_logits,
-                new_token,
-            )
-
-            medusa_kwargs["attention_mask"] = self._update_attention_mask(
-                model_inputs, accept_length, cur_len, medusa_kwargs
-            )
-            cur_len = 1 + cur_len
-            accept_length_tree = input_ids.shape[1] - cur_length
-            cur_length = accept_length_tree + cur_length
-            accept_lengths_tree.append(accept_length_tree)
-            final_accept_length += accept_length + 1
-            if eos_token_id in new_token or final_accept_length > self.neuron_config.max_new_tokens:
-                break
-        return input_ids
-
-    def _prepare_medusa_kwargs(
-        self, position_ids, cur_len, medusa_buffers, select_indices, medusa_kwargs
-    ):
-        medusa_kwargs["position_ids"] = position_ids.unsqueeze(0)
-        medusa_kwargs["accepted_indices"] = torch.arange(
-            cur_len[0].item(),
-            cur_len[0].item() + self.neuron_config.num_medusa_heads + 1,
-            dtype=torch.int32,
-        )
-        for index, value in enumerate(select_indices):
-            medusa_kwargs["accepted_indices"][index] = value
-        medusa_kwargs["accepted_indices"] = medusa_kwargs["accepted_indices"].unsqueeze(0)
-        medusa_kwargs["current_length"] = torch.arange(
-            cur_len[0].item(),
-            cur_len[0].item() + self.neuron_config.num_medusa_heads + 1,
-            dtype=torch.int32,
-        ).unsqueeze(0)
-        medusa_mask = medusa_buffers["medusa_attn_mask"].unsqueeze(0)
-        medusa_kwargs["medusa_mask"] = medusa_mask.type_as(torch.LongTensor())
-        medusa_kwargs["scatter_index"] = torch.arange(
-            position_ids[0],
-            position_ids[0] + self.neuron_config.medusa_speculation_length,
-            dtype=torch.int32,
-        ).unsqueeze(0)
-        return medusa_kwargs
-
-    def _update_attention_mask(self, model_inputs, accept_length, cur_len, medusa_kwargs):
-        accept_length_concat_tensor = torch.zeros(
-            1, accept_length + 1, dtype=model_inputs["attention_mask"].dtype
-        )
-        attn_mask = torch.cat([model_inputs["attention_mask"], accept_length_concat_tensor], dim=-1)
-
-        medusa_kwargs["attention_mask"] = attn_mask.index_fill(
-            1, torch.arange(int(cur_len[0]) + 1, int(cur_len[0]) + 1 + accept_length + 1), 1
-        )
-        return medusa_kwargs["attention_mask"]
-
-    def _extract_logits(self, outputs):
-        logits = outputs["hidden_states"][:1, :, :]
-        medusa_logits = outputs["hidden_states"][1:, :, :].unsqueeze(1)
-        return logits, medusa_logits
 
     @property
     def device(self) -> torch.device:

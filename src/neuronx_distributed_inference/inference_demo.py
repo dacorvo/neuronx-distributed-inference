@@ -146,12 +146,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--speculation-length", type=int)
     run_parser.add_argument("--spec-batch-size", type=int)
 
-    # Medusa decoding
-    run_parser.add_argument("--is-medusa", action="store_true")
-    run_parser.add_argument("--medusa-speculation-length", type=int)
-    run_parser.add_argument("--num-medusa-heads", type=int)
-    run_parser.add_argument("--medusa-tree-json", type=load_json_file, dest="medusa_tree")
-
     # Parallelism
     run_parser.add_argument("--tp-degree", type=int)
     run_parser.add_argument("--pp-degree", type=int)
@@ -338,10 +332,6 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     }
     generation_config.update(**generation_config_kwargs)
 
-    # With Medusa, the model is also the draft model.
-    if neuron_config.is_medusa:
-        draft_model = model
-
     # Check accuracy.
     run_accuracy_check(
         model,
@@ -419,12 +409,6 @@ def run_accuracy_check(
     draft_model=None,
     expected_outputs_path=None,
 ):
-    if model.neuron_config.is_medusa:
-        # Medusa doesn't use greedy sampling, so check accuracy doesn't work.
-        assert (
-            check_accuracy_mode == CheckAccuracyMode.SKIP_ACCURACY_CHECK
-        ), "Accuracy checking not supported for Medusa"
-
     if check_accuracy_mode == CheckAccuracyMode.SKIP_ACCURACY_CHECK:
         print("\nSkipping accuracy check")
         return

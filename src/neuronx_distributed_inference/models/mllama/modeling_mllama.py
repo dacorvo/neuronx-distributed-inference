@@ -159,11 +159,6 @@ class MllamaInferenceConfig(InferenceConfig):
         assert len(missing_attributes) == 0, f"Config must define {missing_attributes}"
 
         assert (
-            self.neuron_config.is_medusa is False and self.neuron_config.speculation_length == 0
-        ), f"Speculative Decoding is not yet supported in this Model. \
-                is_medusa was set to {self.neuron_config.is_medusa}. \
-                speculation_length was set to {self.neuron_config.speculation_length}"
-        assert (
             int(self.neuron_config.logical_neuron_cores) == 1
         ), "This model currently only support logical_neuron_cores=1"
 
@@ -202,7 +197,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         self.rope_theta = config.rope_theta
         self.padding_side = self.neuron_config.padding_side
         self.torch_dtype = self.neuron_config.torch_dtype
-        self.is_medusa = self.neuron_config.is_medusa
 
         self.attn_kernel_enabled = True
 
@@ -223,18 +217,11 @@ class NeuronLlamaAttention(NeuronAttentionBase):
     def init_rope(self):
         if not hasattr(self.config, "rope_scaling") or self.config.rope_scaling is None:
             # TODO(yihsian): Check if we can just use our own implementation
-            if self.is_medusa:
-                self.rotary_emb = LlamaRotaryEmbedding(
-                    self.head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
-            else:
-                self.rotary_emb = RotaryEmbedding(
-                    self.head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
+            self.rotary_emb = RotaryEmbedding(
+                self.head_dim,
+                max_position_embeddings=self.max_position_embeddings,
+                base=self.rope_theta,
+            )
         else:
             rope_type = self.config.rope_scaling.get(
                 "rope_type", self.config.rope_scaling.get("type", None)
@@ -1285,7 +1272,6 @@ class NeuronMllamaForCausalLM(NeuronBaseForCausalLM):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         adapter_ids: Optional[torch.FloatTensor] = None,
-        medusa_args=None,
         return_dict: Optional[bool] = None,
         pixel_values: Optional[torch.Tensor] = None,
         aspect_ratios: Optional[torch.Tensor] = None,

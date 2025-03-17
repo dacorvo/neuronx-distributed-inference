@@ -49,8 +49,6 @@ class KVCacheManager(nn.Module):
 
     def __init__(self, config: InferenceConfig, **kwargs):
         super().__init__()
-        self.is_medusa = config.neuron_config.is_medusa
-        self.num_medusa_heads = config.neuron_config.num_medusa_heads
         self.padding_side = config.neuron_config.padding_side
         self.is_continuous_batching = config.neuron_config.is_continuous_batching
         self.flash_decoding_enabled = config.neuron_config.flash_decoding_enabled
@@ -133,29 +131,9 @@ class KVCacheManager(nn.Module):
                 hidden_dim_per_head,
             )
 
-    def configure_medusa_gather_slice_idx(self, metadata):
-        assert (
-            "current_length" in metadata and "accepted_indices" in metadata
-        ), "current_length and accepted_indices should be specified for medusa decoding!"
-
-        current_length = metadata["current_length"]
-        accepted_indices = metadata["accepted_indices"]
-        slice_index = current_length.view(-1, 1, current_length.shape[-1], 1).expand_as(
-            self.past_key_values[0][:, :, 0 : self.num_medusa_heads + 1, :]
-        )
-        gather_index = accepted_indices.view(-1, 1, accepted_indices.shape[-1], 1).expand_as(
-            self.past_key_values[0][:, :, 0 : self.num_medusa_heads + 1, :]
-        )
-        return slice_index, gather_index
-
     def get_kv_by_layer_id(self, key_layer_idx, gather_index=None, slice_index=None):
         k_cache = self.past_key_values[key_layer_idx]
         v_cache = self.past_key_values[key_layer_idx + 1]
-        if self.is_medusa:
-            accepted_k_cache = torch.gather(input=k_cache, dim=2, index=gather_index)
-            accepted_v_cache = torch.gather(input=v_cache, dim=2, index=gather_index)
-            k_cache = torch.scatter(input=k_cache, dim=2, index=slice_index, src=accepted_k_cache)
-            v_cache = torch.scatter(input=v_cache, dim=2, index=slice_index, src=accepted_v_cache)
         return k_cache, v_cache
 
     def get_cache(self, seq_len: int, skip_slice=False, **kwargs):
@@ -166,12 +144,6 @@ class KVCacheManager(nn.Module):
         :return: list of tuple of (K, V)
         """
         slice_index, gather_index = None, None
-        if self.is_medusa:
-            assert (
-                "medusa_metadata" in kwargs
-            ), "medusa_metadata should be specified for medusa decoding!"
-            medusa_metadata = kwargs["medusa_metadata"]
-            slice_index, gather_index = self.configure_medusa_gather_slice_idx(medusa_metadata)
         past_key_values = []
         for key_layer_idx in range(0, len(self.past_key_values), 2):
             # get kv per layer
@@ -335,8 +307,5 @@ class KVCacheManager(nn.Module):
         return updated_kv_cache
 
     def _get_index_to_update_new_position(self, scatter_index, position_ids, full_k):
-        if self.is_medusa:
-            scatter_index = scatter_index.view(-1, 1, scatter_index.shape[-1], 1).expand_as(full_k)
-        else:
-            scatter_index = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(full_k)
+        scatter_index = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(full_k)
         return scatter_index

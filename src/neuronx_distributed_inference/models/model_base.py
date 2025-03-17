@@ -22,7 +22,6 @@ from neuronx_distributed_inference.models.config import InferenceConfig
 from neuronx_distributed_inference.models.model_wrapper import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,
     FUSED_SPECULATION_MODEL_TAG,
-    MEDUSA_MODEL_TAG,
     SPECULATION_MODEL_TAG,
     TOKEN_GENERATION_MODEL_TAG,
     ModelWrapper,
@@ -195,116 +194,6 @@ class NeuronBaseModel(nn.Module):
 
         return sorted_inp
 
-    def _medusa_forward(
-        self,
-        input_ids,
-        attention_mask,
-        position_ids,
-        seq_ids,
-        sampling_params,
-        adapter_ids=None,
-        accepted_indices=None,
-        current_length=None,
-        medusa_mask=None,
-        scatter_index=None,
-    ):
-        # TODO: This will not work for a context encoding model with bucket size
-        # equal to the medusa speculation length
-        is_for_context_encoding = (
-            input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.medusa_speculation_length
-        )
-        is_for_medusa_speculation = input_ids.shape[-1] == self.medusa_speculation_length
-
-        # It is either for context encoding or for token generation
-        if is_for_context_encoding:
-            past_key_values = None
-        else:
-            medusa_metadata = {
-                "current_length": current_length,
-                "accepted_indices": accepted_indices,
-            }
-            past_key_values = self.kv_mgr.get_cache(
-                self.n_positions, medusa_metadata=medusa_metadata
-            )
-
-        # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
-            attention_mask,
-            is_for_context_encoding,
-            False,
-        )
-        active_mask = None
-        if is_for_medusa_speculation:
-            medusa_mask = medusa_mask[0].bool()
-            active_mask = medusa_mask[None, None, :, :].expand(
-                self.batch_size, 1, self.medusa_speculation_length, self.medusa_speculation_length
-            )
-
-        hidden_states, past_key_values = self.get_model_output(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            active_mask=active_mask,
-            adapter_ids=adapter_ids,
-        )
-
-        updated_kv_cache = self.kv_mgr.update_cache(
-            is_for_context_encoding,
-            seq_ids,
-            position_ids,
-            past_key_values,
-            self.n_positions,
-            scatter_index,
-        )
-
-        if self.padding_side == "left":
-            index = torch.tensor([hidden_states.shape[1] - 1], device=hidden_states.device)
-            index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
-            hidden_states = torch.gather(hidden_states, dim=1, index=index)
-        else:
-            if position_ids.shape[-1] == self.medusa_speculation_length:
-                index = torch.min(position_ids)
-                index = torch.arange(
-                    index, index + self.medusa_speculation_length, device=hidden_states.device
-                )
-                index = index[None, :, None].expand(
-                    self.batch_size, self.medusa_speculation_length, self.hidden_size
-                )
-                hidden_states = torch.gather(hidden_states, dim=1, index=index)
-            else:
-                # simple token generation
-                index = torch.max(position_ids, dim=1, keepdim=True).indices
-                index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
-                hidden_states = torch.gather(hidden_states, dim=1, index=index)
-
-        logits = self.lm_head(hidden_states)
-        logits = logits.float()
-
-        medusa_logits = [logits] + [
-            head(hidden_states).float()
-            for head in [
-                getattr(self, f"medusa_head_{i}")
-                for i in range(self.neuron_config.num_medusa_heads)
-            ]
-        ]
-        stacked_logits = torch.stack(medusa_logits, dim=0)
-
-        if is_for_context_encoding:
-            result = [
-                self.sampler(stacked_logits[i : i + 1, -1, :].squeeze(0), sampling_params)
-                for i in range(self.neuron_config.num_medusa_heads + 1)
-            ]
-            res = torch.stack(result, dim=0)  # 5, 1, 10
-        else:
-            result = [
-                self.sampler(stacked_logits[i : i + 1].squeeze(0), sampling_params)
-                for i in range(self.neuron_config.num_medusa_heads + 1)
-            ]
-            res = torch.stack(result, dim=0)  # 5, 1, 64, 10
-
-        return [res] + updated_kv_cache
-
     def _slice_kv_cache(self, kv_cache, n_positions):
         past_key_values = []
         for idx in range(len(kv_cache)):
@@ -335,26 +224,11 @@ class NeuronBaseModel(nn.Module):
         adapter_ids=None,
         accepted_indices=None,
         current_length=None,
-        medusa_mask=None,
         scatter_index=None,
         # In llava context encoding model, input_embeds is precomputed
         inputs_embeds: Optional[torch.FloatTensor] = None,
         kv_cache: Optional[torch.Tensor] = None,
     ):
-        if self.neuron_config.is_medusa:
-            return self._medusa_forward(
-                input_ids,
-                attention_mask,
-                position_ids,
-                seq_ids,
-                sampling_params,
-                adapter_ids,
-                accepted_indices,
-                current_length,
-                medusa_mask,
-                scatter_index,
-            )
-
         # TODO: This will not work for a context encoding model with bucket size
         # equal to the speculation length
         is_for_context_encoding = (
@@ -1100,7 +974,6 @@ class NeuronFusedSpecModel(nn.Module):
             if (
                 input_ids.shape[-1] > 1
                 and input_ids.shape[-1] != self.neuron_config.speculation_length
-                and input_ids.shape[-1] != self.neuron_config.medusa_speculation_length
             ):
                 return self._eagle_context_encoding_forward(
                     input_ids, attention_mask, position_ids, seq_ids, sampling_params
@@ -1115,7 +988,6 @@ class NeuronFusedSpecModel(nn.Module):
             if (
                 input_ids.shape[-1] > 1
                 and input_ids.shape[-1] != self.neuron_config.speculation_length
-                and input_ids.shape[-1] != self.neuron_config.medusa_speculation_length
             ):
                 return self._context_encoding_forward(
                     input_ids, attention_mask, position_ids, seq_ids, sampling_params
@@ -1164,8 +1036,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 self.enable_token_generation()
             if self.neuron_config.speculation_length > 0:
                 self.enable_speculation()
-            if self.neuron_config.medusa_speculation_length > 0:
-                self.enable_medusa_speculation()
 
     def get_model_wrapper_cls(self):
         return ModelWrapper
@@ -1293,16 +1163,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
 
         self.models.append(self.speculation_model)
 
-    def enable_medusa_speculation(self):
-        new_config = copy.deepcopy(self.config)
-        new_config.neuron_config.batch_size = self.neuron_config.spec_batch_size
-        new_config.neuron_config.n_active_tokens = self.neuron_config.medusa_speculation_length
-        self.medusa_speculation_model = self.model_wrapper(
-            config=new_config, model_cls=self._model_cls, tag=MEDUSA_MODEL_TAG
-        )
-
-        self.models.append(self.medusa_speculation_model)
-
     @classmethod
     def prepare_quantized_state_dict(cls, hf_model_quant):
         model_quant_sd = hf_model_quant.model.state_dict()
@@ -1330,7 +1190,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         adapter_ids: Optional[torch.FloatTensor] = None,
-        medusa_args=None,
         return_dict: Optional[bool] = None,
         llava_args: Optional[List] = [],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
@@ -1385,7 +1244,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
             sampling_params,
             prev_hidden,
             adapter_ids,
-            medusa_args,
             llava_args,
         )
 
@@ -1476,7 +1334,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         sampling_params,
         prev_hidden,
         adapter_ids,
-        medusa_args,
         llava_args,
     ):
         # casting inputs to int32
@@ -1486,29 +1343,16 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         seq_ids = seq_ids.to(torch.int32)
 
         if input_ids.shape[-1] > 1 and not position_ids.min().item():
-            if self.neuron_config.is_medusa:
-                medusa_args = self._prepare_inputs()
-                outputs = self.context_encoding_model(
-                    input_ids,
-                    attention_mask,
-                    position_ids,
-                    seq_ids,
-                    sampling_params,
-                    torch.empty((0)),  # prev_hidden
-                    torch.empty((0)),  # adapter_ids
-                    *medusa_args,
-                )
-            else:
-                outputs = self.context_encoding_model(
-                    input_ids,
-                    attention_mask,
-                    position_ids,
-                    seq_ids,
-                    sampling_params,
-                    prev_hidden,
-                    adapter_ids,
-                    *llava_args,
-                )
+            outputs = self.context_encoding_model(
+                input_ids,
+                attention_mask,
+                position_ids,
+                seq_ids,
+                sampling_params,
+                prev_hidden,
+                adapter_ids,
+                *llava_args,
+            )
 
             self.kv_cache_populated = True
             is_run_on_neuron = self.context_encoding_model.is_neuron()
@@ -1556,18 +1400,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 adapter_ids,
             )
             is_run_on_neuron = self.speculation_model.is_neuron()
-        elif input_ids.shape[-1] == self.neuron_config.medusa_speculation_length:
-            outputs = self.medusa_speculation_model(
-                input_ids,
-                attention_mask,
-                position_ids,
-                seq_ids,
-                sampling_params,
-                torch.empty((0)),  # prev_hidden
-                torch.empty((0)),  # adapter_ids
-                *medusa_args,
-            )
-            is_run_on_neuron = self.medusa_speculation_model.is_neuron()
         else:
             if (
                 self.next_cpu_inputs is not None and self.prior_outputs is not None
@@ -1651,10 +1483,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 self.context_encoding_model.model.past_key_values[i].data = new_past_key_value
 
     def _construct_output(self, logits_or_next_tokens):
-        if self.neuron_config.is_medusa:
-            next_tokens = logits_or_next_tokens[:1, :, :]
-        else:
-            next_tokens = logits_or_next_tokens
+        next_tokens = logits_or_next_tokens
 
         OutputParams = CausalLMOutputWithPast(
             logits=None if self.on_device_sampling else logits_or_next_tokens,
@@ -1662,38 +1491,12 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
             attentions=None,
         )
 
-        if self.neuron_config.is_medusa:
-            OutputParams.tokens = next_tokens[:1, :, :]
-            OutputParams.medusa_tokens = next_tokens[1:, :, :]
-        elif self.neuron_config.enable_fused_speculation:
+        if self.neuron_config.enable_fused_speculation:
             OutputParams.fused_outputs = next_tokens
         else:
             OutputParams.tokens = next_tokens
 
         return OutputParams
-
-    def _prepare_inputs(self):
-        accepted_indices = torch.zeros(
-            (self.neuron_config.batch_size, self.neuron_config.num_medusa_heads + 1),
-            dtype=torch.int32,
-        )
-        current_length = torch.zeros(
-            (self.neuron_config.batch_size, self.neuron_config.num_medusa_heads + 1),
-            dtype=torch.int32,
-        )
-        medusa_mask = torch.zeros(
-            (
-                self.neuron_config.batch_size,
-                self.neuron_config.medusa_speculation_length,
-                self.neuron_config.medusa_speculation_length,
-            ),
-            dtype=torch.int32,
-        )
-        scatter_index = torch.zeros(
-            (self.neuron_config.batch_size, self.neuron_config.medusa_speculation_length),
-            dtype=torch.int32,
-        )
-        return accepted_indices, current_length, medusa_mask, scatter_index
 
     @staticmethod
     def _reorder_cache(past_key_values, beam_idx):

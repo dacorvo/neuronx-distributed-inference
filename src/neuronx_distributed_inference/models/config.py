@@ -151,15 +151,6 @@ class NeuronConfig:
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
 
-        # Medusa decoding
-        self.is_medusa = kwargs.pop("is_medusa", False)
-        self.medusa_speculation_length = kwargs.pop("medusa_speculation_length", 0)
-        self.num_medusa_heads = kwargs.pop("num_medusa_heads", 0)
-        self.medusa_tree = kwargs.pop("medusa_tree", None)
-
-        if self.speculation_length > 0 and self.async_mode:
-            raise IncompatibleConfigError("Medusa Decoding is not yet supported with async.")
-
         # Paged attention
         self.is_paged_attention = kwargs.pop("is_paged_attention", False)
         self.pa_num_blocks = kwargs.pop("pa_num_blocks", self.batch_size)

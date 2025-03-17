@@ -10,7 +10,7 @@ class ModelWrapperMllama(ModelWrapper):
     """
     A class that wraps the Llama Multimodal model for context encoding, speculation, and token generation tasks.
     This class overrides input_generator() to provide additional pixel_values, aspect_ratios in the sample inputs for tracing.
-    It removes inputs related to medusa and Lora since Llama MM does not support them.
+    It removes inputs related to Lora since Llama MM does not support them.
     """
 
     def input_generator(

@@ -25,7 +25,6 @@ from neuronx_distributed_inference.modules.generation.sampling import prepare_sa
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
-MEDUSA_MODEL_TAG = "medusa_speculation_model"
 FUSED_SPECULATION_MODEL_TAG = "fused_speculation_model"
 
 
@@ -98,7 +97,6 @@ class ModelWrapper(torch.nn.Module):
         self.is_compiled = False
         self.serialize_base_path = None
         self.tag = tag
-        self.is_medusa = config.neuron_config.is_medusa
 
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
         self.compiler_workdir = os.path.join(base_compile_work_dir, self.tag)
@@ -218,34 +216,7 @@ class ModelWrapper(torch.nn.Module):
                 else None
             )
 
-            if self.is_medusa:
-                assert (
-                    self.neuron_config.on_device_sampling_config
-                ), "Medusa speculation must use on-device sampling"
-                # Set top_k to signal to the sampler that we're not doing greedy sampling.
-                # This affects the output shape for Medusa speculation
-                sampling_params[:, 0] = self.neuron_config.on_device_sampling_config.top_k
-                accepted_indices = torch.zeros(
-                    (self.neuron_config.batch_size, self.neuron_config.num_medusa_heads + 1),
-                    dtype=torch.int32,
-                )
-                current_length = torch.zeros(
-                    (self.neuron_config.batch_size, self.neuron_config.num_medusa_heads + 1),
-                    dtype=torch.int32,
-                )
-                medusa_mask = torch.zeros(
-                    (
-                        self.neuron_config.batch_size,
-                        self.neuron_config.medusa_speculation_length,
-                        self.neuron_config.medusa_speculation_length,
-                    ),
-                    dtype=torch.int32,
-                )
-                scatter_index = torch.zeros(
-                    (self.neuron_config.batch_size, self.neuron_config.medusa_speculation_length),
-                    dtype=torch.int32,
-                )
-
+            if self.neuron_config.lora_config is not None:
                 inputs.append(
                     (
                         input_ids,
@@ -253,41 +224,24 @@ class ModelWrapper(torch.nn.Module):
                         position_ids,
                         seq_ids,
                         sampling_params,
-                        torch.empty((0)),  # prev_hidden
-                        torch.empty((0)),  # adapter_ids
-                        accepted_indices,
-                        current_length,
-                        medusa_mask,
-                        scatter_index,
+                        adapter_ids,
+                    )
+                )
+            elif self.neuron_config.is_eagle_draft:
+                inputs.append(
+                    (
+                        input_ids,
+                        attention_mask,
+                        position_ids,
+                        seq_ids,
+                        sampling_params,
+                        hidden_states,
                     )
                 )
             else:
-                if self.neuron_config.lora_config is not None:
-                    inputs.append(
-                        (
-                            input_ids,
-                            attention_mask,
-                            position_ids,
-                            seq_ids,
-                            sampling_params,
-                            adapter_ids,
-                        )
-                    )
-                elif self.neuron_config.is_eagle_draft:
-                    inputs.append(
-                        (
-                            input_ids,
-                            attention_mask,
-                            position_ids,
-                            seq_ids,
-                            sampling_params,
-                            hidden_states,
-                        )
-                    )
-                else:
-                    inputs.append(
-                        (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
-                    )
+                inputs.append(
+                    (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+                )
 
         return inputs
 
@@ -301,10 +255,6 @@ class ModelWrapper(torch.nn.Module):
     def _forward_with_pad(self, *args):
         seq_ids = args[3]
         sampling_params = args[4]
-        if len(args) > 5:
-            medusa_args = args[5:8]
-        else:
-            medusa_args = None
 
         # pad the inputs up to the compiled batch size in the end
         def pad_helper(tensor, pad_type="zeros"):
@@ -346,10 +296,6 @@ class ModelWrapper(torch.nn.Module):
         # pad sampling params by repeating first batchline
         padded_sampling_params = pad_helper(sampling_params, pad_type="repeat_first_batchline")
         padded_args.append(padded_sampling_params)
-
-        if medusa_args is not None:
-            for arg in medusa_args:
-                padded_args.append(pad_helper(arg))
 
         outputs = self._forward(*padded_args)
 

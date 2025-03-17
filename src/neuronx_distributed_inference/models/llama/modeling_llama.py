@@ -593,7 +593,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         self.rope_theta = config.rope_theta
         self.padding_side = config.neuron_config.padding_side
         self.torch_dtype = config.neuron_config.torch_dtype
-        self.is_medusa = config.neuron_config.is_medusa
         self.flash_decoding_enabled = config.neuron_config.flash_decoding_enabled
         self.num_cores_per_group = config.num_cores_per_group
         self.bias = getattr(config, "attention_bias", False)
@@ -621,19 +620,11 @@ class NeuronLlamaAttention(NeuronAttentionBase):
 
     def init_rope(self):
         if not hasattr(self.config, "rope_scaling") or self.config.rope_scaling is None:
-            # TODO(yihsian): Check if we can just use our own implementation
-            if self.is_medusa:
-                self.rotary_emb = LlamaRotaryEmbedding(
-                    self.head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
-            else:
-                self.rotary_emb = RotaryEmbedding(
-                    self.head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
+            self.rotary_emb = RotaryEmbedding(
+                self.head_dim,
+                max_position_embeddings=self.max_position_embeddings,
+                base=self.rope_theta,
+            )
         else:
             rope_type = self.config.rope_scaling.get(
                 "rope_type", self.config.rope_scaling.get("type", None)
@@ -919,26 +910,6 @@ class NeuronLlamaModel(NeuronBaseModel):
             self.fc = ColumnParallelLinear(
                 config.hidden_size * 2, config.hidden_size, bias=fc_bias, gather_output=True
             )
-        self.is_medusa = config.neuron_config.is_medusa
-        self.num_medusa_heads = config.neuron_config.num_medusa_heads
-        self.medusa_speculation_length = config.neuron_config.medusa_speculation_length
-
-        if self.is_medusa:
-            if parallel_state.model_parallel_is_initialized():
-                medusa_head_cls = ColumnParallelLinear
-            else:
-                medusa_head_cls = nn.Linear
-            for i in range(self.num_medusa_heads):
-                medusa_head = nn.Sequential(
-                    *([ResBlock(config.hidden_size)] * 1),
-                    medusa_head_cls(
-                        config.hidden_size,
-                        config.vocab_size,
-                        gather_output=not self.on_device_sampling,
-                        bias=False,
-                    ),
-                )
-                setattr(self, f"medusa_head_{i}", medusa_head)
 
 
 class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):

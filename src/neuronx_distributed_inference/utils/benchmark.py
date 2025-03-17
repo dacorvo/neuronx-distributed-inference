@@ -169,18 +169,6 @@ def benchmark_sampling(
             n_runs=spec_benchmark.num_runs,
         )
 
-    # Benchmark Medusa speculation model
-    if hasattr(model, "medusa_speculation_model") and target == "speculation":
-        input_param = get_sample_inputs(MEDUSA_MODEL, model.config)
-        spec_benchmark = Benchmark(model.medusa_speculation_model, input_param)
-        spec_benchmark.run()
-        report[MEDUSA_MODEL] = generate_report(
-            spec_benchmark.latency_list,
-            neuron_config.max_length,
-            neuron_config.max_batch_size,
-            n_runs=spec_benchmark.num_runs,
-        )
-
     model.reset()
     if draft_model is not None:
         draft_model.reset()
@@ -207,10 +195,6 @@ def get_sample_inputs(model_type, config: InferenceConfig, sampling_params, imag
     if max_context_length == max_len:
         input_length = max_context_length // 2
     batch_size = neuron_config.batch_size
-    num_medusa_heads = neuron_config.num_medusa_heads if neuron_config.num_medusa_heads else 4
-    medusa_speculation_length = (
-        neuron_config.medusa_speculation_length if neuron_config.medusa_speculation_length else 64
-    )
 
     sample_inputs = None
     if model_type == END_TO_END_MODEL:
@@ -248,26 +232,7 @@ def get_sample_inputs(model_type, config: InferenceConfig, sampling_params, imag
         position_ids = torch.zeros((batch_size, input_length), dtype=torch.int32)
         seq_ids = torch.zeros((batch_size), dtype=torch.int32)
 
-        if neuron_config.is_medusa:
-            accepted_indices = torch.zeros((batch_size, num_medusa_heads + 1), dtype=torch.int32)
-            current_length = torch.zeros((batch_size, num_medusa_heads + 1), dtype=torch.int32)
-            medusa_mask = torch.zeros(
-                (batch_size, medusa_speculation_length, medusa_speculation_length),
-                dtype=torch.int32,
-            )
-            scatter_index = torch.zeros((batch_size, medusa_speculation_length), dtype=torch.int32)
-            sample_inputs = (
-                input_ids,
-                attention_mask,
-                position_ids,
-                seq_ids,
-                sampling_params,
-                accepted_indices,
-                current_length,
-                medusa_mask,
-                scatter_index,
-            )
-        elif image:
+        if image:
             pixel_values = torch.zeros(
                 (
                     batch_size,
@@ -326,30 +291,6 @@ def get_sample_inputs(model_type, config: InferenceConfig, sampling_params, imag
             position_ids,
             seq_ids,
             sampling_params,
-        )
-
-    elif model_type == MEDUSA_MODEL:
-        spec_len = neuron_config.medusa_speculation_length
-        input_ids = torch.zeros((batch_size, spec_len), dtype=torch.int32)
-        attention_mask = torch.zeros((batch_size, max_len), dtype=torch.int32)
-        position_ids = torch.zeros((batch_size, spec_len), dtype=torch.int32)
-        seq_ids = torch.zeros((batch_size), dtype=torch.int32)
-        accepted_indices = torch.zeros((batch_size, num_medusa_heads + 1), dtype=torch.int32)
-        current_length = torch.zeros((batch_size, num_medusa_heads + 1), dtype=torch.int32)
-        medusa_mask = torch.zeros(
-            (batch_size, medusa_speculation_length, medusa_speculation_length), dtype=torch.int32
-        )
-        scatter_index = torch.zeros((batch_size, medusa_speculation_length), dtype=torch.int32)
-        sample_inputs = (
-            input_ids,
-            attention_mask,
-            position_ids,
-            seq_ids,
-            sampling_params,
-            accepted_indices,
-            current_length,
-            medusa_mask,
-            scatter_index,
         )
 
     return sample_inputs
