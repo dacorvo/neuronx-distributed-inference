@@ -192,11 +192,6 @@ class ModelWrapper(torch.nn.Module):
                 (self.neuron_config.batch_size, n_active_tokens), dtype=torch.int32
             )
             seq_ids = torch.zeros((self.neuron_config.batch_size), dtype=torch.int32)
-            adapter_ids = (
-                torch.zeros((self.neuron_config.batch_size), dtype=torch.int32)
-                if self.neuron_config.lora_config is not None
-                else None
-            )
             # Get the count of sampling params currently supported.
             sampling_params_len = prepare_sampling_params(1).shape[1]
             sampling_params = torch.zeros(
@@ -216,18 +211,7 @@ class ModelWrapper(torch.nn.Module):
                 else None
             )
 
-            if self.neuron_config.lora_config is not None:
-                inputs.append(
-                    (
-                        input_ids,
-                        attention_mask,
-                        position_ids,
-                        seq_ids,
-                        sampling_params,
-                        adapter_ids,
-                    )
-                )
-            elif self.neuron_config.is_eagle_draft:
+            if self.neuron_config.is_eagle_draft:
                 inputs.append(
                     (
                         input_ids,
@@ -347,10 +331,6 @@ class ModelWrapper(torch.nn.Module):
             raise RuntimeError(
                 "Forward called before load. Run load() or load_state_dict() making calling forward"
             )
-
-        if args[6] is None:
-            # if adapter_ids for LoRA is None, pop it out
-            args = (*args[:6], *args[7:])
 
         # remove hidden state if None
         # This is hacky and is being fixed

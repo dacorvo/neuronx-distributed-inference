@@ -72,7 +72,6 @@ from neuronx_distributed_inference.modules.attention.utils import (
 )
 from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 from neuronx_distributed_inference.modules.flashdecode.utils import calculate_num_cores_per_group
-from neuronx_distributed_inference.modules.lora_serving.lora_module import is_lora_module
 from neuronx_distributed_inference.utils.distributed import get_tp_group
 
 _LLAMA_MODULE_MAP = {}
@@ -291,7 +290,7 @@ class NeuronLlamaMLP(nn.Module):
             self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=mlp_bias)
             self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=mlp_bias)
 
-    def _kernel_enabled_quantized_mlp(self, x, fused_rmsnorm, rmsnorm, residual, adapter_ids):
+    def _kernel_enabled_quantized_mlp(self, x, fused_rmsnorm, rmsnorm, residual):
         grid = (vnc(self.logical_neuron_cores),)
         fused_residual = residual is not None
         logger.debug(
@@ -428,7 +427,7 @@ class NeuronLlamaMLP(nn.Module):
         logger.debug(f"Quantized MLP output shape {output_tensor.shape}")
         return (output_tensor, residual)
 
-    def _kernel_enabled_mlp(self, x, fused_rmsnorm, rmsnorm, residual, adapter_ids):
+    def _kernel_enabled_mlp(self, x, fused_rmsnorm, rmsnorm, residual):
         fused_residual = residual is not None
         logger.debug(
             f"MLP: kernel, fused_residual={fused_residual}, fused_rmsnorm={fused_rmsnorm}, logical_neuron_cores={self.logical_neuron_cores}"
@@ -521,7 +520,7 @@ class NeuronLlamaMLP(nn.Module):
         logger.debug(f"MLP output shape {output_tensor.shape}")
         return (output_tensor, residual)
 
-    def _native_mlp(self, x, rmsnorm, adapter_ids=None):
+    def _native_mlp(self, x, rmsnorm):
         logger.debug("MLP: native compiler")
         # all-gather is done here instead of CPL layers to
         # avoid 2 all-gathers from up and gate projections
@@ -530,24 +529,14 @@ class NeuronLlamaMLP(nn.Module):
                 x, self.sequence_dimension, process_group=get_tp_group(self.config)
             )
 
-        gate_proj_output = (
-            self.gate_proj(x)
-            if not is_lora_module(self.gate_proj)
-            else self.gate_proj(x, adapter_ids)
-        )
-        up_proj_output = (
-            self.up_proj(x) if not is_lora_module(self.up_proj) else self.up_proj(x, adapter_ids)
-        )
+        gate_proj_output = self.gate_proj(x)
+        up_proj_output = self.up_proj(x)
         down_proj_input = self.act_fn(gate_proj_output) * up_proj_output
-        output = (
-            self.down_proj(down_proj_input)
-            if not is_lora_module(self.up_proj)
-            else self.down_proj(down_proj_input, adapter_ids)
-        )
+        output = self.down_proj(down_proj_input)
         logger.debug(f"MLP output shape {output.shape}")
         return output
 
-    def forward(self, x, rmsnorm=None, residual=None, adapter_ids=None):
+    def forward(self, x, rmsnorm=None, residual=None):
         """
         If residual is passed in, will fuse its add into the MLP kernel
 
@@ -557,16 +546,12 @@ class NeuronLlamaMLP(nn.Module):
             fused_rmsnorm = not self.sequence_parallel_enabled
             # Quantized MLP kernel
             if self.quantized_mlp_kernel_enabled:
-                return self._kernel_enabled_quantized_mlp(
-                    x, fused_rmsnorm, rmsnorm, residual, adapter_ids=adapter_ids
-                )
+                return self._kernel_enabled_quantized_mlp(x, fused_rmsnorm, rmsnorm, residual)
             # MLP kernel
-            return self._kernel_enabled_mlp(
-                x, fused_rmsnorm, rmsnorm, residual, adapter_ids=adapter_ids
-            )
+            return self._kernel_enabled_mlp(x, fused_rmsnorm, rmsnorm, residual)
         else:
             # No kernel
-            return (self._native_mlp(x, rmsnorm, adapter_ids=adapter_ids), None)
+            return (self._native_mlp(x, rmsnorm), None)
 
 
 @register_module("NeuronLlamaAttention")
@@ -757,7 +742,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        adapter_ids=None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         residual = hidden_states
@@ -772,7 +756,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
-            adapter_ids=adapter_ids,
             rmsnorm=self.input_layernorm,
             **kwargs,
         )
@@ -786,7 +769,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
                 hidden_states,
                 rmsnorm=self.post_attention_layernorm,
                 residual=residual,
-                adapter_ids=adapter_ids,
             )
         else:
             hidden_states = residual + hidden_states
@@ -797,7 +779,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
             hidden_states, _ = self.mlp(
                 hidden_states,
                 rmsnorm=self.post_attention_layernorm,
-                adapter_ids=adapter_ids,
             )
 
         hidden_states = residual + hidden_states

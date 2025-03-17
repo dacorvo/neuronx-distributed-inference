@@ -20,7 +20,6 @@ from neuronx_distributed_inference.models.config import (
 from neuronx_distributed_inference.models.dbrx.modeling_dbrx import NeuronDbrxForCausalLM
 from neuronx_distributed_inference.models.llama.modeling_llama import NeuronLlamaForCausalLM
 from neuronx_distributed_inference.models.mixtral.modeling_mixtral import NeuronMixtralForCausalLM
-from neuronx_distributed_inference.modules.lora_serving import LoraServingConfig
 from neuronx_distributed_inference.utils.accuracy import (
     check_accuracy,
     check_accuracy_logits,
@@ -166,13 +165,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     # async
     run_parser.add_argument("--async", action="store_true")
 
-    # lora
-    run_parser.add_argument("--enable-lora", action="store_true")
-    run_parser.add_argument("--max-loras", type=int)
-    run_parser.add_argument("--max-lora-rank", type=int)
-    run_parser.add_argument("--target-modules", nargs="+")
-    run_parser.add_argument("--max-loras-on-cpu", type=int)
-
     # Kernels
     run_parser.add_argument("--qkv-kernel-enabled", action="store_true")
     run_parser.add_argument("--attn-kernel-enabled", action="store_true")
@@ -230,15 +222,6 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     if (args.quantized and args.quantization_dtype == "f8e4m3") or args.kv_cache_quant:
         os.environ["XLA_HANDLE_SPECIAL_SCALAR"] = "1"
 
-    adapter_ids = None
-    if args.enable_lora:
-        config_kwargs["lora_config"] = LoraServingConfig(
-            max_loras=args.max_loras,
-            max_lora_rank=args.max_lora_rank,
-            target_modules=args.target_modules,
-            max_loras_on_cpu=args.max_loras_on_cpu,
-        )
-        adapter_ids = torch.tensor([0, 1], dtype=torch.int32)
     neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
     config = model_cls.get_config_cls()(
@@ -353,7 +336,6 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         args.prompts,
         generation_config,
         draft_model=draft_model,
-        adapter_ids=adapter_ids,
         max_new_tokens=args.max_new_tokens
     )
 
@@ -375,7 +357,6 @@ def run_generation(
     prompts,
     generation_config,
     draft_model=None,
-    adapter_ids=None,
     max_new_tokens=None,
 ):
     print("\nGenerating outputs...")
@@ -388,7 +369,6 @@ def run_generation(
         is_hf=False,
         draft_model=draft_model,
         generation_config=generation_config,
-        adapter_ids=adapter_ids,
         max_new_tokens=max_new_tokens,
     )
 

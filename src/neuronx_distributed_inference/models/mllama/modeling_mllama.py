@@ -249,7 +249,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         position_ids,
         hidden_states,
         past_key_value,
-        adapter_ids=None,
         rotary_freqs=None,
         cos_cache=None,
         sin_cache=None,
@@ -265,15 +264,12 @@ class NeuronLlamaAttention(NeuronAttentionBase):
                 position_ids,
                 hidden_states,
                 past_key_value,
-                adapter_ids=adapter_ids,
                 cos_cache=cos_cache,
                 sin_cache=sin_cache,
                 rmsnorm=rmsnorm,
             )
 
-        Q, K, V = self.qkv_proj(
-            hidden_states=hidden_states, rmsnorm=rmsnorm, adapter_ids=adapter_ids
-        )
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm)
 
         # Divide hidden_dim across heads for MHA
         # Change layout: BSHD -> BHSD
@@ -303,7 +299,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         active_mask: Optional[torch.LongTensor] = None,
-        adapter_ids=None,
         rotary_freqs: Optional[torch.LongTensor] = None,
         cos_cache: Optional[torch.Tensor] = None,
         sin_cache: Optional[torch.Tensor] = None,
@@ -321,7 +316,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
             position_ids,
             hidden_states,
             past_key_value,
-            adapter_ids=adapter_ids,
             rotary_freqs=rotary_freqs,
             cos_cache=cos_cache,
             sin_cache=sin_cache,
@@ -350,7 +344,7 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
 
         # Z = Z.Wo
-        attn_output = self.o_proj(attn_output, adapter_ids=adapter_ids)
+        attn_output = self.o_proj(attn_output)
 
         past_key_value: Tuple[Tensor, Tensor] = (K, V)
 
@@ -1271,7 +1265,6 @@ class NeuronMllamaForCausalLM(NeuronBaseForCausalLM):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        adapter_ids: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
         pixel_values: Optional[torch.Tensor] = None,
         aspect_ratios: Optional[torch.Tensor] = None,

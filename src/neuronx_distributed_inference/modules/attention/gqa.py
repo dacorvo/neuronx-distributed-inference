@@ -16,7 +16,6 @@ from torch.nn import functional as F
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 from neuronx_distributed_inference.modules.attention.utils import transpose_parallel_linear_layer
-from neuronx_distributed_inference.modules.lora_serving.lora_module import is_lora_module
 
 logger = logging.getLogger("Neuron")
 
@@ -423,7 +422,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias
                 )
 
-    def forward(self, hidden_states: torch.Tensor, rmsnorm=None, adapter_ids=None):
+    def forward(self, hidden_states: torch.Tensor, rmsnorm=None):
         if self.sequence_parallel_enabled and self.tensor_model_parallel_group is not None:
             hidden_states = gather_from_sequence_parallel_region(
                 hidden_states,
@@ -436,33 +435,17 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             fused_rmsnorm = not self.sequence_parallel_enabled
             return self._kernel_qkv_forward(hidden_states, fused_rmsnorm, rmsnorm)
         else:
-            return self._native_qkv_forward(hidden_states, adapter_ids)
+            return self._native_qkv_forward(hidden_states)
 
-    def _native_qkv_forward(self, hidden_states: torch.Tensor, adapter_ids=None):
+    def _native_qkv_forward(self, hidden_states: torch.Tensor):
         if self.fused_qkv:
             logger.debug("QKV: native compiler")
-            QKV = (
-                self.Wqkv(hidden_states)
-                if not is_lora_module(self.Wqkv)
-                else self.Wqkv(hidden_states, adapter_ids)
-            )
+            QKV = self.Wqkv(hidden_states)
             return self._split_fused_qkv(QKV)
         else:
-            Q = (
-                self.q_proj(hidden_states)
-                if not is_lora_module(self.q_proj)
-                else self.q_proj(hidden_states, adapter_ids)
-            )
-            K = (
-                self.k_proj(hidden_states)
-                if not is_lora_module(self.k_proj)
-                else self.k_proj(hidden_states, adapter_ids)
-            )
-            V = (
-                self.v_proj(hidden_states)
-                if not is_lora_module(self.v_proj)
-                else self.v_proj(hidden_states, adapter_ids)
-            )
+            Q = self.q_proj(hidden_states)
+            K = self.k_proj(hidden_states)
+            V = self.v_proj(hidden_states)
             if self.clip_qkv is not None:
                 Q = Q.clamp(min=-self.clip_qkv, max=self.clip_qkv)
                 K = K.clamp(min=-self.clip_qkv, max=self.clip_qkv)
@@ -908,12 +891,8 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         # For example, in CLIP vision model, we use "out_proj"
         self.layer_name = layer_name
 
-    def forward(self, attention_output: torch.Tensor, adapter_ids=None):
-        return (
-            self.o_proj(attention_output)
-            if not is_lora_module(self.o_proj)
-            else self.o_proj(attention_output, adapter_ids)
-        )
+    def forward(self, attention_output: torch.Tensor):
+        return self.o_proj(attention_output)
 
     def preshard_hook(self, model_state_dict: dict, prefix: str) -> bool:
         prefix_parts = prefix.split(".")

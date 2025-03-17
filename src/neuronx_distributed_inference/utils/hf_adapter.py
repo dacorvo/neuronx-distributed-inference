@@ -252,7 +252,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
                 "past_key_values": past_key_values,
                 "use_cache": kwargs.get("use_cache", False),
                 "attention_mask": attention_mask,
-                "adapter_ids": kwargs.get("adapter_ids", None),
                 "sampling_params": sampling_params,
             }
         )

@@ -151,15 +151,12 @@ class NeuronAttentionBase(nn.Module):
         position_ids,
         hidden_states,
         past_key_value,
-        adapter_ids=None,
         cos_cache=None,
         sin_cache=None,
         rmsnorm=None,
     ):
         """take care of the shape, layout, group query, custom position encoding, etc."""
-        Q, K, V = self.qkv_proj(
-            hidden_states=hidden_states, rmsnorm=rmsnorm, adapter_ids=adapter_ids
-        )
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm)
 
         # Divide hidden_dim across heads for MHA
         # Change layout: BSHD -> BHSD
@@ -381,7 +378,6 @@ class NeuronAttentionBase(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         active_mask: Optional[torch.LongTensor] = None,
-        adapter_ids=None,
         cos_cache: Optional[torch.Tensor] = None,
         sin_cache: Optional[torch.Tensor] = None,
         rmsnorm=None,
@@ -395,7 +391,6 @@ class NeuronAttentionBase(nn.Module):
             position_ids,
             hidden_states,
             past_key_value,
-            adapter_ids=adapter_ids,
             cos_cache=cos_cache,
             sin_cache=sin_cache,
             rmsnorm=rmsnorm,
@@ -460,7 +455,7 @@ class NeuronAttentionBase(nn.Module):
         attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
 
         # Z = Z.Wo
-        attn_output = self.o_proj(attn_output, adapter_ids=adapter_ids)
+        attn_output = self.o_proj(attn_output)
 
         past_key_value: Tuple[Tensor, Tensor] = (K, V)
 

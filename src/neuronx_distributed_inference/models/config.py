@@ -6,8 +6,6 @@ from typing import Dict, List, Type, Union
 import torch
 from neuronx_distributed.quantization.quantization_config import QuantizedDtype
 
-from neuronx_distributed_inference.modules.lora_serving import LoraServingConfig
-
 CONFIG_FILE = "neuron_config.json"
 
 
@@ -158,11 +156,6 @@ class NeuronConfig:
 
         # Chunked prefilled
         self.is_chunked_prefill = kwargs.pop("is_chunked_prefill", False)
-
-        # Lora
-        self.lora_config = kwargs.pop("lora_config", None)
-        if type(self.lora_config) is dict:
-            self.lora_config = LoraServingConfig(**self.lora_config)
 
         # Distributed config
         self.tp_degree = kwargs.pop("tp_degree", 1)

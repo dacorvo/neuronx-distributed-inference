@@ -43,11 +43,6 @@ from neuronx_distributed_inference.modules.kvcache.kv_cache_manager import (
     KVCacheManager,
     _slice_kv_cacheline,
 )
-from neuronx_distributed_inference.modules.lora_serving import (
-    update_weights_for_lora,
-    wrap_model_with_lora,
-)
-from neuronx_distributed_inference.modules.lora_serving.lora_module import is_lora_module
 from neuronx_distributed_inference.utils.distributed import get_tp_group
 from neuronx_distributed_inference.utils.random import set_random_seed
 
@@ -82,8 +77,6 @@ class NeuronBaseModel(nn.Module):
         if optimize_inference:
             self.init_inference_optimization(config)
 
-        if self.neuron_config.lora_config is not None:
-            wrap_model_with_lora(self, self.neuron_config.lora_config)
 
     def setup_attr_for_model(self, config: InferenceConfig):
         """
@@ -221,7 +214,6 @@ class NeuronBaseModel(nn.Module):
         seq_ids,
         sampling_params,
         prev_hidden=None,
-        adapter_ids=None,
         accepted_indices=None,
         current_length=None,
         scatter_index=None,
@@ -250,8 +242,6 @@ class NeuronBaseModel(nn.Module):
             attention_mask = self._reorder_helper(attention_mask, seq_ids)
             position_ids = self._reorder_helper(position_ids, seq_ids)
             sampling_params = self._reorder_helper(sampling_params, seq_ids)
-            if adapter_ids:
-                adapter_ids = self._reorder_helper(adapter_ids, seq_ids)
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -303,7 +293,6 @@ class NeuronBaseModel(nn.Module):
             past_key_values=past_key_values,
             active_mask=active_mask,
             inputs_embeds=inputs_embeds,
-            adapter_ids=adapter_ids,
             prev_hidden=prev_hidden,
         )
 
@@ -406,7 +395,6 @@ class NeuronBaseModel(nn.Module):
         active_mask: Optional[List[torch.FloatTensor]] = None,
         # In llava context encoding model, input_embeds is precomputed
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        adapter_ids=None,
         prev_hidden: Optional[torch.FloatTensor] = None,
     ):
         batch_size, seq_length = input_ids.shape[:2]
@@ -416,11 +404,7 @@ class NeuronBaseModel(nn.Module):
             past_key_values_length = past_key_values[0][0].shape[2]
 
         if inputs_embeds is None:
-            inputs_embeds = (
-                self.embed_tokens(input_ids)
-                if not is_lora_module(self.embed_tokens)
-                else self.embed_tokens(input_ids, adapter_ids=adapter_ids)
-            )
+            inputs_embeds = self.embed_tokens(input_ids)
 
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device  # noqa
@@ -473,7 +457,6 @@ class NeuronBaseModel(nn.Module):
                 position_ids=position_ids,
                 past_key_value=past_key_value,
                 active_mask=active_mask,
-                adapter_ids=adapter_ids,
                 cos_cache=cos_cache,
                 sin_cache=sin_cache,
             )
@@ -491,9 +474,6 @@ class NeuronBaseModel(nn.Module):
             )
 
         return (hidden_states, next_decoder_cache)
-
-    def update_weights_for_lora(self, model_sd):
-        return update_weights_for_lora(self, model_sd)
 
 
 class NeuronFusedSpecModel(nn.Module):
@@ -967,7 +947,6 @@ class NeuronFusedSpecModel(nn.Module):
         seq_ids: Optional[torch.LongTensor] = None,
         sampling_params: Optional[torch.FloatTensor] = None,
         prev_hidden: Optional[torch.FloatTensor] = None,
-        adapter_ids=None,
         llava_args: Optional[List] = [],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         if self.config.neuron_config.enable_eagle_speculation:
@@ -1189,7 +1168,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        adapter_ids: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
         llava_args: Optional[List] = [],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
@@ -1231,8 +1209,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         if attention_mask is None:
             attention_mask = self._infer_attention_mask(position_ids)
 
-        self._log_input(input_ids, attention_mask, position_ids, seq_ids, adapter_ids)
-
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
 
@@ -1243,7 +1219,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
             seq_ids,
             sampling_params,
             prev_hidden,
-            adapter_ids,
             llava_args,
         )
 
@@ -1299,7 +1274,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         return attention_mask
 
     def _log_input(
-        self, input_ids, attention_mask, position_ids, seq_ids, adapter_ids=None, **kwargs
+        self, input_ids, attention_mask, position_ids, seq_ids, **kwargs
     ):
         logging.debug("---input---")
         logging.debug("input_ids shape = %s type=%s", input_ids.shape, input_ids.type())
@@ -1311,7 +1286,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         logging.debug("attention_mask =%s", attention_mask)
         logging.debug("position_ids =%s", position_ids)
         logging.debug(f"seq_ids: {seq_ids}")
-        logging.debug(f"adapter_ids: {adapter_ids}")
 
         if self.neuron_config.trace_tokengen_model and not self.token_generation_model.is_neuron():
             logging.debug(
@@ -1333,7 +1307,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         seq_ids,
         sampling_params,
         prev_hidden,
-        adapter_ids,
         llava_args,
     ):
         # casting inputs to int32
@@ -1350,7 +1323,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 seq_ids,
                 sampling_params,
                 prev_hidden,
-                adapter_ids,
                 *llava_args,
             )
 
@@ -1365,7 +1337,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                         self.next_cpu_inputs["position_ids"],
                         seq_ids,
                         sampling_params,
-                        adapter_ids,
                         *llava_args,
                     )
                     outputs = self._get_async_output(outputs)  # block on cte call
@@ -1385,7 +1356,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 seq_ids,
                 sampling_params,
                 prev_hidden,
-                adapter_ids,
             )
 
             is_run_on_neuron = self.fused_spec_model.is_neuron()
@@ -1397,7 +1367,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 seq_ids,
                 sampling_params,
                 prev_hidden,
-                adapter_ids,
             )
             is_run_on_neuron = self.speculation_model.is_neuron()
         else:
@@ -1419,7 +1388,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                 seq_ids,
                 sampling_params,
                 prev_hidden,
-                adapter_ids,
                 *llava_args,
             )
             if self.async_mode:
@@ -1433,7 +1401,6 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
                         self.next_cpu_inputs["position_ids"],
                         seq_ids,
                         sampling_params,
-                        adapter_ids,
                         *llava_args,
                     )
                 outputs = self.prior_outputs
