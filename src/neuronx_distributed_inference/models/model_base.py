@@ -296,9 +296,6 @@ class NeuronBaseModel(nn.Module):
             prev_hidden=prev_hidden,
         )
 
-        if self.neuron_config.enable_eagle_speculation:
-            full_hidden_states = hidden_states
-
         if kv_cache is None:
             updated_kv_cache = self.kv_mgr.update_cache(
                 is_for_context_encoding=is_for_context_encoding,
@@ -355,11 +352,7 @@ class NeuronBaseModel(nn.Module):
             # FIXME, logits[:, -1, :] is not correct for speculation model, this is a tempory fix.
             if is_for_speculation and not self.neuron_config.on_device_sampling_config.do_sample:
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
-            elif (
-                is_for_context_encoding
-                or not self.neuron_config.enable_eagle_speculation
-                or not self.neuron_config.on_device_sampling_config.do_sample
-            ):
+            else:
                 res = self.sampler(logits[:, -1, :], sampling_params)
 
         if self._is_reorder_needed(is_for_context_encoding, is_for_speculation):
@@ -374,9 +367,6 @@ class NeuronBaseModel(nn.Module):
             )
             outputs += [logits]
         outputs += updated_kv_cache
-
-        if self.neuron_config.enable_eagle_speculation:
-            outputs = outputs + [full_hidden_states]
 
         return outputs
 
@@ -440,10 +430,6 @@ class NeuronBaseModel(nn.Module):
         else:
             hidden_states = inputs_embeds
 
-        if self.neuron_config.is_eagle_draft:
-            concat_states = torch.cat((hidden_states, prev_hidden), dim=2)
-            hidden_states = self.fc(concat_states)
-
         # decoder layers
         next_decoder_cache = ()
         cos_cache = None
@@ -465,8 +451,7 @@ class NeuronBaseModel(nn.Module):
             next_decoder_cache += (layer_outputs[1],)
             cos_cache, sin_cache = layer_outputs[2:]
 
-        if not self.neuron_config.is_eagle_draft:
-            hidden_states = self.norm(hidden_states)
+        hidden_states = self.norm(hidden_states)
 
         if self.sequence_parallel_enabled:
             hidden_states = gather_from_sequence_parallel_region(
@@ -490,12 +475,6 @@ class NeuronFusedSpecModel(nn.Module):
         self.n_positions = config.neuron_config.n_positions
         self.batch_size = config.neuron_config.batch_size
         self.hidden_size = config.hidden_size
-        if config.neuron_config.enable_eagle_speculation:
-            self.hidden_state = torch.nn.Parameter(
-                torch.zeros(
-                    (self.batch_size, 1, self.hidden_size), dtype=config.neuron_config.torch_dtype
-                )
-            )
 
         config.fused_spec_config.draft_config.neuron_config.use_draft_group = True
         config.fused_spec_config.draft_config.neuron_config.quantized_mlp_kernel_enabled = False
@@ -707,238 +686,6 @@ class NeuronFusedSpecModel(nn.Module):
             )
         return [candidate_input_ids[:, 1:]] + [target_tokens] + flat_draft_cache + target_cache
 
-    def _eagle_context_encoding_forward(
-        self, input_ids, attention_mask, position_ids, seq_ids, sampling_params
-    ):
-        self.draft_model.n_positions = self.n_positions
-        self.target_model.n_positions = self.n_positions
-
-        assert self.neuron_config.on_device_sampling_config
-
-        target_outputs = self.target_model(
-            input_ids, attention_mask, position_ids, seq_ids, sampling_params
-        )
-        hidden_state = target_outputs[-1]
-
-        # Create draft args from target args
-        # Draft is always running 1 position behind the target
-        # So if target input is ABCDE, draft input will be BCDE
-
-        draft_input_ids = copy.deepcopy(input_ids)
-        gather_index = torch.arange(0, input_ids.shape[1], device=input_ids.device) + 1
-        gather_index[-1] = 0
-        gather_index = gather_index.expand(input_ids.shape)
-        draft_input_ids = torch.gather(input_ids, 1, gather_index)
-
-        draft_position_ids = copy.deepcopy(position_ids)
-        scatter_index = torch.sum(attention_mask, dim=1, keepdim=True) - 1
-        zeros = torch.zeros(
-            scatter_index.shape, dtype=attention_mask.dtype, device=attention_mask.device
-        )
-        draft_position_ids = torch.scatter(draft_position_ids, 1, scatter_index, zeros)
-
-        draft_outputs = self.draft_model(
-            draft_input_ids,
-            attention_mask,
-            draft_position_ids,
-            seq_ids,
-            sampling_params,
-            hidden_state,
-        )
-        num_outputs = 1 if not self.neuron_config.output_logits else 2
-        draft_cache = draft_outputs[num_outputs:-1]
-        target_cache = target_outputs[num_outputs:-1]
-        index = torch.max(position_ids, dim=1, keepdim=True).indices
-        index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
-        hidden_state = torch.gather(hidden_state, dim=1, index=index)
-
-        # Hack to make sure torch doesn't optimize out the hidden state
-        hidden_state = self.hidden_state * 0 + hidden_state
-
-        if self.neuron_config.output_logits:
-            return (
-                [draft_outputs[0]]
-                + [target_outputs[0]]
-                + [draft_outputs[1]]
-                + [target_outputs[1]]
-                + draft_cache
-                + target_cache
-                + [hidden_state]
-            )
-        return (
-            [draft_outputs[0]] + [target_outputs[0]] + draft_cache + target_cache + [hidden_state]
-        )
-
-    def _eagle_token_gen_forward(
-        self, input_ids, attention_mask, position_ids, seq_ids, sampling_params
-    ):
-        spec_len = self.neuron_config.speculation_length
-        bs = input_ids.shape[0]
-        hidden_state = self.hidden_state
-
-        assert self.neuron_config.on_device_sampling_config
-
-        # 1. Generate k-1 candidate tokens
-        draft_position_ids = position_ids.expand(bs, spec_len) - 1  # [1, 5]
-        candidate_input_ids = input_ids
-        target_position_ids = position_ids
-        draft_attention_mask = copy.deepcopy(attention_mask)
-        scatter_index = torch.sum(draft_attention_mask, dim=1, keepdim=True) - 1
-        zeros = torch.zeros(
-            scatter_index.shape,
-            dtype=draft_attention_mask.dtype,
-            device=draft_attention_mask.device,
-        )
-        draft_attention_mask = torch.scatter(draft_attention_mask, 1, scatter_index, zeros)
-
-        orig_hidden = hidden_state
-        draft_cache = None
-        draft_probs = []
-        draft_logits_list = []
-        num_outputs = 1 if not self.neuron_config.output_logits else 2
-        for i in range(spec_len - 1):
-            draft_position_id = draft_position_ids[:, i : i + 1] + i
-            draft_input_ids = candidate_input_ids[:, -1:]
-
-            target_position_id = draft_position_ids[:, i : i + 1] + i + 2
-            target_position_ids = torch.cat([target_position_ids, target_position_id], dim=1)
-
-            if draft_cache is None:
-                draft_cache = self.draft_model.kv_mgr.get_cache(self.n_positions, skip_slice=True)
-            else:
-                # draft cache returned from the model is flattened. We reshape it to match the expected input schema.
-                # kvcache_buffer is 2D list where, 1st dim for layer and the second denotes K and V.
-                # For example,
-                #     kvcache_buffer[1][0] is the K cache of the 1st layer
-                #     kvcache_buffer[4][1] is the V cache of the 4th layer
-                reshaped_cache = []
-                for i in range(0, len(draft_cache), 2):
-                    reshaped_cache.append([draft_cache[i], draft_cache[i + 1]])
-                draft_cache = reshaped_cache
-
-            model_output = self.draft_model(
-                draft_input_ids,
-                draft_attention_mask,
-                draft_position_id,
-                seq_ids,
-                sampling_params,
-                prev_hidden=hidden_state,
-                kv_cache=draft_cache,
-            )
-            if not self.greedy:
-                draft_outputs, single_draft_probs = self.draft_sampler(
-                    model_output[0], sampling_params, return_values=True
-                )
-                draft_probs.append(single_draft_probs)
-            else:
-                draft_outputs = model_output[0]
-            draft_cache = model_output[num_outputs:-1]
-            hidden_state = model_output[-1]
-            if self.neuron_config.output_logits:
-                draft_logits_list.append(model_output[1])
-
-            draft_attention_mask.index_fill_(
-                1, draft_position_id.to(torch.int64).squeeze(), 1
-            ).view(bs, -1)
-            new_draft_token = draft_outputs[0].view(bs, -1)
-
-            candidate_input_ids = torch.cat((candidate_input_ids, new_draft_token), dim=-1)
-
-        if not self.greedy:
-            draft_probs = torch.cat(draft_probs, dim=1)
-
-        # 2. Run target model on the draft produced tokens
-        outputs = self.target_model(
-            candidate_input_ids,
-            attention_mask,
-            target_position_ids,
-            seq_ids,
-            sampling_params,
-        )
-        if not self.greedy:
-            target_tokens, target_probs = self.target_sampler(
-                outputs[0], sampling_params, return_values=True
-            )
-        else:
-            target_tokens = outputs[0]
-        target_cache = outputs[num_outputs:-1]
-        hidden_state = outputs[-1]
-        prev_hidden = torch.cat([orig_hidden, hidden_state[:, : spec_len - 1, :]], dim=1)
-
-        reshaped_cache = []
-        for i in range(0, len(draft_cache), 2):
-            reshaped_cache.append([draft_cache[i], draft_cache[i + 1]])
-        draft_cache = reshaped_cache
-
-        # 3 Final draft run to update KV cache. This is done after the target run since we need to send
-        # the hidden states from the target output as input to the final draft run.
-        model_output = self.draft_model(
-            candidate_input_ids,
-            attention_mask,
-            target_position_ids - 1,
-            seq_ids,
-            sampling_params,
-            prev_hidden=prev_hidden,
-            kv_cache=draft_cache,
-        )
-        draft_cache = model_output[num_outputs:-1]
-
-        # Retile the cache
-        flat_draft_cache = []
-        for idx in range(len(draft_cache)):
-            # TODO once compiler fixes CR 158191111 we can turn back output tiling on
-            # flat_draft_cache.append(draft_cache[idx].view(self.draft_model.kv_mgr.kv_shape))
-            flat_draft_cache.append(draft_cache[idx])
-
-        if not self.greedy:
-            adjusted_target_probs = self._adjust_target_probs(
-                draft_probs, candidate_input_ids[:, 1:], target_probs, target_tokens, spec_len - 1
-            )
-            target_ids = self.target_sampler._multinomial(adjusted_target_probs, 2)
-            target_ids = torch.gather(target_tokens, 2, target_ids)
-            target_ids = torch.squeeze(target_ids, 2)
-            draft_ids = candidate_input_ids[:, 1:]
-            sliced_target_indices = target_tokens[:, : spec_len - 1, :]
-            sliced_target_probs = target_probs[:, : spec_len - 1, :]
-
-            tokens, index = self._speculative_token_selection(
-                draft_ids,
-                target_ids,
-                draft_ids,
-                draft_probs,
-                sliced_target_indices,
-                sliced_target_probs,
-            )
-            target_tokens = tokens
-            index = index[:, :, None].expand(self.batch_size, 1, self.hidden_size)
-        else:
-            index = (
-                (~(candidate_input_ids[:, 1:] == target_tokens[:, :-1])).cumsum(dim=-1) < 1
-            ).sum()
-            index = index.unsqueeze(0).expand(self.batch_size, 1, self.hidden_size)
-        hidden_state = torch.gather(hidden_state, dim=1, index=index)
-
-        if self.neuron_config.output_logits:
-            draft_logits = torch.cat(draft_logits_list, dim=1)
-            target_logits = outputs[1]
-            return (
-                [candidate_input_ids]
-                + [target_tokens]
-                + [draft_logits]
-                + [target_logits]
-                + flat_draft_cache
-                + target_cache
-                + [hidden_state]
-            )
-
-        return (
-            [candidate_input_ids]
-            + [target_tokens]
-            + flat_draft_cache
-            + target_cache
-            + [hidden_state]
-        )
-
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -949,33 +696,18 @@ class NeuronFusedSpecModel(nn.Module):
         prev_hidden: Optional[torch.FloatTensor] = None,
         llava_args: Optional[List] = [],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
-        if self.config.neuron_config.enable_eagle_speculation:
-            if (
-                input_ids.shape[-1] > 1
-                and input_ids.shape[-1] != self.neuron_config.speculation_length
-            ):
-                return self._eagle_context_encoding_forward(
-                    input_ids, attention_mask, position_ids, seq_ids, sampling_params
-                )
-            else:
-                # verify how many tokens here
-                return self._eagle_token_gen_forward(
-                    input_ids, attention_mask, position_ids, seq_ids, sampling_params
-                )
-
+        if (
+            input_ids.shape[-1] > 1
+            and input_ids.shape[-1] != self.neuron_config.speculation_length
+        ):
+            return self._context_encoding_forward(
+                input_ids, attention_mask, position_ids, seq_ids, sampling_params
+            )
         else:
-            if (
-                input_ids.shape[-1] > 1
-                and input_ids.shape[-1] != self.neuron_config.speculation_length
-            ):
-                return self._context_encoding_forward(
-                    input_ids, attention_mask, position_ids, seq_ids, sampling_params
-                )
-            else:
-                # verify how many tokens here
-                return self._token_gen_forward(
-                    input_ids, attention_mask, position_ids, seq_ids, sampling_params
-                )
+            # verify how many tokens here
+            return self._token_gen_forward(
+                input_ids, attention_mask, position_ids, seq_ids, sampling_params
+            )
 
 
 class NeuronBaseForCausalLM(NeuronApplicationBase):

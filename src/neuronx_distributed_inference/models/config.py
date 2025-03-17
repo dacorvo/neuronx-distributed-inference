@@ -139,12 +139,6 @@ class NeuronConfig:
         self.speculation_length = kwargs.pop("speculation_length", 0)
         self.spec_batch_size = kwargs.pop("spec_batch_size", self.batch_size)
         self.enable_fused_speculation = kwargs.pop("enable_fused_speculation", False)
-        self.enable_eagle_speculation = kwargs.pop("enable_eagle_speculation", False)
-        self.is_eagle_draft = kwargs.pop("is_eagle_draft", False)
-        self.enable_eagle_draft_input_norm = kwargs.pop("enable_eagle_draft_input_norm", False)
-
-        if self.enable_eagle_speculation:
-            self.enable_fused_speculation = True
 
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
@@ -183,7 +177,7 @@ class NeuronConfig:
         #   Tiling the sequence dimension of the KV cache enables specific
         #   compiler optimizations like cascaded reductions
         self.kv_cache_tiling = False
-        if self.enable_eagle_speculation or self.enable_fused_speculation:
+        if self.enable_fused_speculation:
             # TODO once compiler fixes CR 158191111 we can turn back output tiling on
             # For all models. For now only use it for fused speculation that needs
             # chaining of aliased tensors.

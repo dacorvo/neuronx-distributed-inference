@@ -716,15 +716,10 @@ class NeuronLlamaDecoderLayer(nn.Module):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = None
-        if (
-            not config.neuron_config.is_eagle_draft
-            or config.neuron_config.enable_eagle_draft_input_norm
-        ):
-            self.input_layernorm = get_rmsnorm_cls()(
-                config.hidden_size,
-                eps=config.rms_norm_eps,
-            )
+        self.input_layernorm = get_rmsnorm_cls()(
+            config.hidden_size,
+            eps=config.rms_norm_eps,
+        )
         self.post_attention_layernorm = get_rmsnorm_cls()(
             config.hidden_size,
             eps=config.rms_norm_eps,
@@ -883,14 +878,7 @@ class NeuronLlamaModel(NeuronBaseModel):
             else:
                 updated_configs.append(config)
         self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(conf) for conf in updated_configs])
-        if not config.neuron_config.is_eagle_draft:
-            self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
-
-        if config.neuron_config.is_eagle_draft:
-            fc_bias = getattr(config, "fc_bias", False)
-            self.fc = ColumnParallelLinear(
-                config.hidden_size * 2, config.hidden_size, bias=fc_bias, gather_output=True
-            )
+        self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):

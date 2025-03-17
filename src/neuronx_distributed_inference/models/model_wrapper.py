@@ -202,30 +202,10 @@ class ModelWrapper(torch.nn.Module):
                     sampling_params[:, 0] = self.neuron_config.on_device_sampling_config.top_k
                     sampling_params[:, 1] = self.neuron_config.on_device_sampling_config.top_p
                     sampling_params[:, 2] = self.neuron_config.on_device_sampling_config.temperature
-            hidden_states = (
-                torch.zeros(
-                    (self.neuron_config.batch_size, n_active_tokens, self.config.hidden_size),
-                    dtype=self.config.neuron_config.torch_dtype,
-                )
-                if self.neuron_config.is_eagle_draft
-                else None
-            )
 
-            if self.neuron_config.is_eagle_draft:
-                inputs.append(
-                    (
-                        input_ids,
-                        attention_mask,
-                        position_ids,
-                        seq_ids,
-                        sampling_params,
-                        hidden_states,
-                    )
-                )
-            else:
-                inputs.append(
-                    (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
-                )
+            inputs.append(
+                (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+            )
 
         return inputs
 
@@ -467,11 +447,6 @@ class DecoderModelInstance(BaseModelInstance):
                 self.input_output_aliases[target_past_key_values[j]] = (
                     num_output_from_trace * 2 + len(draft_past_key_values)
                 ) + j
-
-            if self.neuron_config.enable_eagle_speculation:
-                self.input_output_aliases[self.module.hidden_state] = (
-                    num_output_from_trace * 2 + len(draft_past_key_values)
-                ) + len(target_past_key_values)
 
         else:
             # TODO: This else block is a short-term fix for Llava/ViT models to use DecoderModelInstance.

@@ -440,10 +440,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
             draft_new_tokens = outputs.fused_outputs[0]
             target_tokens = outputs.fused_outputs[1]
 
-            if self.neuron_config.enable_eagle_speculation:
-                candidate_new_tokens = draft_new_tokens[:, 1:]
-            else:
-                candidate_new_tokens = draft_new_tokens[:, :-1]
+            candidate_new_tokens = draft_new_tokens[:, :-1]
 
             # 3. EOS checking
             eos_pos = draft_new_tokens.shape[1]
