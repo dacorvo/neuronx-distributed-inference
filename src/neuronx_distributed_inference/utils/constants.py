@@ -1,4 +1,3 @@
-from neuronx_distributed_inference.models.dbrx.modeling_dbrx import NeuronDbrxForCausalLM
 from neuronx_distributed_inference.models.llama.modeling_llama import NeuronLlamaForCausalLM
 from neuronx_distributed_inference.models.mixtral.modeling_mixtral import NeuronMixtralForCausalLM
 from neuronx_distributed_inference.models.mllama.modeling_mllama import NeuronMllamaForCausalLM
@@ -22,5 +21,4 @@ MODEL_TYPES = {
     "llama": {"causal-lm": NeuronLlamaForCausalLM},
     "mllama": {"causal-lm": NeuronMllamaForCausalLM},
     "mixtral": {"causal-lm": NeuronMixtralForCausalLM},
-    "dbrx": {"causal-lm": NeuronDbrxForCausalLM},
 }
