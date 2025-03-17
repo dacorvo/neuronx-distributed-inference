@@ -364,6 +364,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         generation_config,
         draft_model=draft_model,
         adapter_ids=adapter_ids,
+        max_new_tokens=args.max_new_tokens
     )
 
     # Benchmarking.
@@ -385,6 +386,7 @@ def run_generation(
     generation_config,
     draft_model=None,
     adapter_ids=None,
+    max_new_tokens=None,
 ):
     print("\nGenerating outputs...")
     print(f"Prompts: {prompts}")
@@ -397,7 +399,7 @@ def run_generation(
         draft_model=draft_model,
         generation_config=generation_config,
         adapter_ids=adapter_ids,
-        max_length=model.neuron_config.max_length,
+        max_new_tokens=max_new_tokens,
     )
 
     print("Generated outputs:")
