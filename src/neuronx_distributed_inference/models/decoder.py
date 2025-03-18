@@ -47,7 +47,7 @@ from neuronx_distributed_inference.utils.distributed import get_tp_group
 from neuronx_distributed_inference.utils.random import set_random_seed
 
 
-class NeuronBaseModel(nn.Module):
+class NeuronDecoderModel(nn.Module):
     """
     Base model that NeuronXXXModel classes inherit from.
 

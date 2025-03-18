@@ -57,9 +57,9 @@ from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaRMSNorm, LlamaRotaryEmbedding
 
 from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig  # noqa: E402
-from neuronx_distributed_inference.models.model_base import (  # noqa: E402
+from neuronx_distributed_inference.models.decoder import (  # noqa: E402
     NeuronBaseForCausalLM,
-    NeuronBaseModel,
+    NeuronDecoderModel,
 )
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.gqa import (  # noqa: E402
@@ -788,7 +788,7 @@ class ResBlock(nn.Module):
         return x + self.act(self.linear(x))
 
 
-class NeuronLlamaModel(NeuronBaseModel):
+class NeuronLlamaModel(NeuronDecoderModel):
     """
     The neuron version of the LlamaModel
     """

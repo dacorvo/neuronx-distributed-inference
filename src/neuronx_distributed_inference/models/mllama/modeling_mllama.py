@@ -60,9 +60,9 @@ from neuronx_distributed_inference.models.config import (  # noqa: E402
     to_dict,
 )
 from neuronx_distributed_inference.models.llama.modeling_llama import NeuronLlamaMLP  # noqa: E402
-from neuronx_distributed_inference.models.model_base import (  # noqa: E402
+from neuronx_distributed_inference.models.decoder import (  # noqa: E402
     NeuronBaseForCausalLM,
-    NeuronBaseModel,
+    NeuronDecoderModel,
     get_cache_size,
     mask_util,
     turn_2d_mask_to_4d,
@@ -839,7 +839,7 @@ class PartiallyTrainable_Embedding(torch.nn.Module):
         return x_orig * mask_orig.type_as(x_orig) + x_new * mask_new.type_as(x_new)
 
 
-class NeuronMllamaTextModel(NeuronBaseModel):
+class NeuronMllamaTextModel(NeuronDecoderModel):
     """
     The neuron version of language model of the Llama Multimodal Model
     """
@@ -944,7 +944,7 @@ class NeuronMllamaTextModel(NeuronBaseModel):
         num_chunks=None,
         has_image=None,
     ):
-        """Override NeuronBaseModel.forward() to add vision_tokens input, and vision_key_values, updated_vision_cache"""
+        """Override NeuronDecoderModel.forward() to add vision_tokens input, and vision_key_values, updated_vision_cache"""
         is_for_context_encoding = 1 < input_ids.shape[-1] != self.speculation_length
         is_for_speculation = input_ids.shape[-1] == self.speculation_length
 
@@ -1061,7 +1061,7 @@ class NeuronMllamaTextModel(NeuronBaseModel):
         has_image: Optional[torch.Tensor] = None,
     ):
         """
-        Override NeuronBaseModel.get_model_output() to add vision_tokens, vision_key_values inputs,
+        Override NeuronDecoderModel.get_model_output() to add vision_tokens, vision_key_values inputs,
         replace cos_cache and sin_cache with vision_decoder_cache and rotary_freqs to use polar_compatible_rope
         """
         batch_size, seq_length = input_ids.shape[:2]
@@ -1141,7 +1141,7 @@ class NeuronMllamaTextModel(NeuronBaseModel):
         return (hidden_states, next_decoder_cache, vision_decoder_cache)
 
 
-class NeuronMllamaModel(NeuronBaseModel):
+class NeuronMllamaModel(NeuronDecoderModel):
     def __init__(self, config: InferenceConfig):
         self.vision_config = config.vision_config
         self.text_config = config.text_config

@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 
-from neuronx_distributed_inference.models.model_base import NeuronBaseForCausalLM, NeuronBaseModel
+from neuronx_distributed_inference.models.decoder import NeuronBaseForCausalLM, NeuronDecoderModel
 from neuronx_distributed_inference.modules.attention.gqa import GQA
 from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 
@@ -264,7 +264,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
         return outputs
 
 
-class NeuronMixtralModel(NeuronBaseModel):
+class NeuronMixtralModel(NeuronDecoderModel):
     """
     NeuronMixtralModel extends the MixtralModel to be traceable.
     The forward function of this class is traced.

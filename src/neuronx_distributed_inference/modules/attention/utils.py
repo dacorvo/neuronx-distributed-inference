@@ -371,7 +371,7 @@ def create_block_diagonal_attn_mask(
     prefill.
 
     This function is written in a way that it can be traced, so it can
-    be used inside the NeuronBaseModel class.
+    be used inside the NeuronDecoderModel class.
 
     Example:
         query_lens = [2,3,1,0]
