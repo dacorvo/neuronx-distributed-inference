@@ -74,7 +74,6 @@ from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 from neuronx_distributed_inference.modules.flashdecode.utils import calculate_num_cores_per_group
 from neuronx_distributed_inference.utils.distributed import get_tp_group
 
-_LLAMA_MODULE_MAP = {}
 
 logger = logging.getLogger("Neuron")
 
@@ -91,30 +90,6 @@ def preshard_hook_fn(module: torch.nn.Module, model_state_dict: dict, prefix: st
         return module.preshard_hook(model_state_dict, prefix)
 
     return False
-
-
-def _register_module(key: str, cls: Type[nn.Module]):
-    _LLAMA_MODULE_MAP[key] = cls
-
-
-def register_module(key: str):
-    """
-    Register a module for use in NeuronLlama.
-
-    Arguments:
-        key: String used to identify the module
-
-    Example:
-        @register_module("NeuronLlamaAttention")
-        class NeuronLlamaAttention(nn.Module):
-            ...
-    """
-
-    def inner(cls: Type[nn.Module]):
-        _register_module(key, cls)
-        return cls
-
-    return inner
 
 
 def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: InferenceConfig):
@@ -554,7 +529,6 @@ class NeuronLlamaMLP(nn.Module):
             return (self._native_mlp(x, rmsnorm), None)
 
 
-@register_module("NeuronLlamaAttention")
 class NeuronLlamaAttention(NeuronAttentionBase):
     """
     Compared with LlamaAttention, this class just
@@ -709,7 +683,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
     def __init__(self, config: InferenceConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = _LLAMA_MODULE_MAP[config.neuron_config.attn_cls](
+        self.self_attn = NeuronLlamaAttention(
             config=config, tensor_model_parallel_group=get_tp_group(config)
         )
         self.mlp = NeuronLlamaMLP(config)
