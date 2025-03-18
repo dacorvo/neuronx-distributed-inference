@@ -16,7 +16,6 @@ from transformers import GenerationConfig, PreTrainedModel, PreTrainedTokenizer
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
-from neuronx_distributed_inference.models.mllama.utils import create_vision_mask, get_image_tensors
 from neuronx_distributed_inference.modules.generation.sampling import prepare_sampling_params
 from neuronx_distributed_inference.utils.constants import *
 from neuronx_distributed_inference.utils.hf_adapter import HuggingFaceGenerationAdapter
@@ -278,7 +277,7 @@ def check_accuracy_logits(
         raise ValueError("Logits validation is not supported with on-device sampling.")
 
     if prompt is None:
-        prompt = MM_TEST_PROMPT if image else TEST_PROMPT
+        prompt = TEST_PROMPT
     prompts = [prompt] * neuron_model.config.neuron_config.batch_size
 
     inputs = tokenizer(prompts, padding=True, return_tensors="pt")

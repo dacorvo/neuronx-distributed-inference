@@ -10,8 +10,6 @@ from transformers import GenerationConfig
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
 from neuronx_distributed_inference.models.config import InferenceConfig
-from neuronx_distributed_inference.models.mllama.model_wrapper_mllama import NUM_IMAGE_PER_PROMPT
-from neuronx_distributed_inference.models.mllama.utils import get_image_tensors
 from neuronx_distributed_inference.modules.generation.sampling import prepare_sampling_params
 from neuronx_distributed_inference.utils.constants import *
 from neuronx_distributed_inference.utils.hf_adapter import HuggingFaceGenerationAdapter
@@ -24,7 +22,6 @@ def benchmark_sampling(
     draft_model: NeuronApplicationBase = None,
     generation_config: GenerationConfig = None,
     target: str = None,
-    image=None,
 ):
     neuron_config = model.neuron_config
 
@@ -63,7 +60,7 @@ def benchmark_sampling(
             vision_mask,
             num_chunks,
             has_image,
-        ) = get_sample_inputs(END_TO_END_MODEL, model.config, sampling_params, image=image)
+        ) = get_sample_inputs(END_TO_END_MODEL, model.config, sampling_params)
 
         input_param = {
             "input_ids": input_ids,
@@ -182,7 +179,7 @@ def benchmark_sampling(
     return report
 
 
-def get_sample_inputs(model_type, config: InferenceConfig, sampling_params, image=None):
+def get_sample_inputs(model_type, config: InferenceConfig, sampling_params):
     if hasattr(config, "neuron_config"):
         neuron_config = config.neuron_config
     else:
@@ -207,14 +204,6 @@ def get_sample_inputs(model_type, config: InferenceConfig, sampling_params, imag
             None,
             None,
         )
-        if image is not None:
-            pixel_values, aspect_ratios, num_chunks, has_image = get_image_tensors(
-                config, [[]] * batch_size
-            )
-            vision_mask = torch.zeros(
-                (neuron_config.batch_size, NUM_IMAGE_PER_PROMPT, 2),
-                dtype=torch.int32,
-            )
         sample_inputs = (
             input_ids,
             attention_mask,
