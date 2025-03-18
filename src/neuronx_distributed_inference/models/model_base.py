@@ -54,7 +54,7 @@ class NeuronBaseModel(nn.Module):
     The forward() function will be traced and compiled by NxD.
     """
 
-    def __init__(self, config: InferenceConfig, optimize_inference=True):
+    def __init__(self, config: InferenceConfig):
         super().__init__()
 
         self.config = config
@@ -74,8 +74,7 @@ class NeuronBaseModel(nn.Module):
 
         self.setup_attr_for_model(config)
         self.init_model(config)
-        if optimize_inference:
-            self.init_inference_optimization(config)
+        self.init_inference_optimization(config)
 
 
     def setup_attr_for_model(self, config: InferenceConfig):
