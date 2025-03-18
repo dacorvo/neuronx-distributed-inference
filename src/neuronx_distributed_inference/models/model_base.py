@@ -18,7 +18,7 @@ from torch import nn
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
-from neuronx_distributed_inference.models.config import InferenceConfig
+from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
 from neuronx_distributed_inference.models.model_wrapper import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,
     FUSED_SPECULATION_MODEL_TAG,
@@ -713,8 +713,12 @@ class NeuronFusedSpecModel(nn.Module):
 class NeuronBaseForCausalLM(NeuronApplicationBase):
     _model_cls = None
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+            self,
+            model_path: str,
+            config: InferenceConfig = None,
+            neuron_config: NeuronConfig = None):
+        super().__init__(model_path, config=config, neuron_config=neuron_config)
 
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
