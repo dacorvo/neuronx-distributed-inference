@@ -153,13 +153,13 @@ class MixtralInferenceConfig(InferenceConfig):
 
 
 class NeuronMixtralAttention(NeuronAttentionBase):
-    def __init__(self, config: MixtralInferenceConfig):
+    def __init__(self, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig):
         if not parallel_state.model_parallel_is_initialized():
             raise ValueError(
                 "NeuronMixtralAttention has to be initialized in a distributed env. Please use neuronx_distributed"
                 " module to initialize a distributed env."
             )
-        super().__init__(config, config.neuron_config)
+        super().__init__(config, neuron_config)
         self.tp_degree = parallel_state.get_tensor_model_parallel_size()
 
         head_dim = config.hidden_size // config.num_attention_heads
@@ -178,7 +178,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
     def __init__(self, config: MixtralInferenceConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = NeuronMixtralAttention(config=config)
+        self.self_attn = NeuronMixtralAttention(config, config.neuron_config)
 
         self.mlp = initialize_moe_module(
             config=config,

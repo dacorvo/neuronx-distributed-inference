@@ -538,8 +538,11 @@ class NeuronLlamaAttention(NeuronAttentionBase):
     5. update forward() method to adjust to changes from self.num_head
     """
 
-    def __init__(self, config: InferenceConfig, tensor_model_parallel_group=None):
-        super().__init__(config, config.neuron_config, tensor_model_parallel_group=tensor_model_parallel_group)
+    def __init__(self,
+                 config: InferenceConfig,
+                 neuron_config: NeuronConfig,
+                 tensor_model_parallel_group=None):
+        super().__init__(config, neuron_config, tensor_model_parallel_group=tensor_model_parallel_group)
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
             self.rotary_emb = RotaryEmbedding(
@@ -647,7 +650,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronLlamaAttention(
-            config=config, tensor_model_parallel_group=get_tp_group(config)
+            config, config.neuron_config, tensor_model_parallel_group=get_tp_group(config)
         )
         neuron_config = config.neuron_config
         self.mlp = NeuronLlamaMLP(config, neuron_config)
