@@ -275,7 +275,6 @@ class NeuronMixtralModel(NeuronDecoderModel):
         self.hidden_size = self.config.hidden_size
         self.num_attention_heads = self.config.num_attention_heads
         self.num_key_value_heads = self.config.num_key_value_heads
-        self.max_batch_size = self.config.neuron_config.max_batch_size
         self.buckets = self.config.neuron_config.buckets
 
     def init_model(self):
@@ -299,7 +298,7 @@ class NeuronMixtralModel(NeuronDecoderModel):
         self.lm_head = ColumnParallelLinear(
             self.config.hidden_size,
             self.config.vocab_size,
-            gather_output=False if self.on_device_sampling else True,
+            gather_output=self.config.neuron_config.on_device_sampling_config is None,
             bias=False,
         )
 
