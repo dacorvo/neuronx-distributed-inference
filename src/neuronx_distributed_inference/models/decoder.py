@@ -74,13 +74,14 @@ class NeuronDecoderModel(nn.Module):
 
         self.setup_attr_for_model()
         self.init_model()
-        self.init_inference_optimization()
+        if config.neuron_config.on_device_sampling_config is not None:
+            self.sampler = Sampler(config.neuron_config)
+        self.kv_mgr = KVCacheManager(config, num_kv_head=self.num_key_value_heads)
 
 
     def setup_attr_for_model(self):
         """
         Please provide model-specific definition for the following attributes
-            self.on_device_sampling
             self.tp_degree
             self.hidden_size
             self.num_attention_heads
@@ -119,7 +120,7 @@ class NeuronDecoderModel(nn.Module):
         set_random_seed(seed)
 
     def init_inference_optimization(self):
-        if self.on_device_sampling:
+        if self.neuron_config.on_device_sampling_config is not None:
             self.sampler = Sampler(self.config.neuron_config)
         self.kv_mgr = KVCacheManager(self.config, num_kv_head=self.num_key_value_heads)
 
@@ -346,7 +347,7 @@ class NeuronDecoderModel(nn.Module):
         logits = logits.float()
 
         res = logits
-        if self.on_device_sampling:
+        if self.neuron_config.on_device_sampling_config is not None:
             # perform sampling on Neuron to get tokens
             # FIXME, logits[:, -1, :] is not correct for speculation model, this is a tempory fix.
             if is_for_speculation and not self.neuron_config.on_device_sampling_config.do_sample:

@@ -794,8 +794,6 @@ class NeuronLlamaModel(NeuronDecoderModel):
     """
 
     def setup_attr_for_model(self):
-        # Needed for init_inference_optimization()
-        self.on_device_sampling = self.config.neuron_config.on_device_sampling_config is not None
         self.tp_degree = self.config.neuron_config.tp_degree
         self.hidden_size = self.config.hidden_size
         self.num_attention_heads = self.config.num_attention_heads
