@@ -72,12 +72,12 @@ class NeuronDecoderModel(nn.Module):
         self.rank_util = SPMDRank(world_size=self.config.neuron_config.tp_degree)
         self.num_cores_per_group = config.num_cores_per_group
 
-        self.setup_attr_for_model(config)
-        self.init_model(config)
-        self.init_inference_optimization(config)
+        self.setup_attr_for_model()
+        self.init_model()
+        self.init_inference_optimization()
 
 
-    def setup_attr_for_model(self, config: InferenceConfig):
+    def setup_attr_for_model(self):
         """
         Please provide model-specific definition for the following attributes
             self.on_device_sampling
@@ -90,7 +90,7 @@ class NeuronDecoderModel(nn.Module):
         """
         raise NotImplementedError("setup_attr_for_model() is not implemented")
 
-    def init_model(self, config: InferenceConfig):
+    def init_model(self):
         """
         Please provide definition for the following components:
             self.embed_tokens
@@ -118,10 +118,10 @@ class NeuronDecoderModel(nn.Module):
         # set seed
         set_random_seed(seed)
 
-    def init_inference_optimization(self, config: InferenceConfig):
+    def init_inference_optimization(self):
         if self.on_device_sampling:
-            self.sampler = Sampler(config.neuron_config)
-        self.kv_mgr = KVCacheManager(config, num_kv_head=self.num_key_value_heads)
+            self.sampler = Sampler(self.config.neuron_config)
+        self.kv_mgr = KVCacheManager(self.config, num_kv_head=self.num_key_value_heads)
 
     def _create_context_attn_mask(self, attention_mask, **kwargs):
         # Block diagonal causal mask for chunked prefill

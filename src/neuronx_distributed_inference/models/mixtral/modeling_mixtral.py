@@ -270,36 +270,36 @@ class NeuronMixtralModel(NeuronDecoderModel):
     The forward function of this class is traced.
     """
 
-    def setup_attr_for_model(self, config: MixtralInferenceConfig):
-        self.on_device_sampling = config.neuron_config.on_device_sampling_config is not None
-        self.tp_degree = config.neuron_config.tp_degree
-        self.hidden_size = config.hidden_size
-        self.num_attention_heads = config.num_attention_heads
-        self.num_key_value_heads = config.num_key_value_heads
-        self.max_batch_size = config.neuron_config.max_batch_size
-        self.buckets = config.neuron_config.buckets
+    def setup_attr_for_model(self):
+        self.on_device_sampling = self.config.neuron_config.on_device_sampling_config is not None
+        self.tp_degree = self.config.neuron_config.tp_degree
+        self.hidden_size = self.config.hidden_size
+        self.num_attention_heads = self.config.num_attention_heads
+        self.num_key_value_heads = self.config.num_key_value_heads
+        self.max_batch_size = self.config.neuron_config.max_batch_size
+        self.buckets = self.config.neuron_config.buckets
 
-    def init_model(self, config: MixtralInferenceConfig):
-        self.padding_idx = config.pad_token_id
-        self.vocab_size = config.vocab_size
+    def init_model(self):
+        self.padding_idx = self.config.pad_token_id
+        self.vocab_size = self.config.vocab_size
 
         self.embed_tokens = ParallelEmbedding(
-            config.vocab_size,
-            config.hidden_size,
+            self.config.vocab_size,
+            self.config.hidden_size,
             self.padding_idx,
-            dtype=config.neuron_config.torch_dtype,
+            dtype=self.config.neuron_config.torch_dtype,
             shard_across_embedding=True,
         )
         self.layers = nn.ModuleList(
             [
-                NeuronMixtralDecoderLayer(config, layer_idx)
-                for layer_idx in range(config.num_hidden_layers)
+                NeuronMixtralDecoderLayer(self.config, layer_idx)
+                for layer_idx in range(self.config.num_hidden_layers)
             ]
         )
-        self.norm = get_rmsnorm_cls(config)(self.hidden_size, eps=config.rms_norm_eps)
+        self.norm = get_rmsnorm_cls(self.config)(self.hidden_size, eps=self.config.rms_norm_eps)
         self.lm_head = ColumnParallelLinear(
-            config.hidden_size,
-            config.vocab_size,
+            self.config.hidden_size,
+            self.config.vocab_size,
             gather_output=False if self.on_device_sampling else True,
             bias=False,
         )
