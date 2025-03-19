@@ -271,7 +271,6 @@ class NeuronMixtralModel(NeuronDecoderModel):
     """
 
     def setup_attr_for_model(self):
-        self.num_attention_heads = self.config.num_attention_heads
         self.num_key_value_heads = self.config.num_key_value_heads
 
     def init_model(self):

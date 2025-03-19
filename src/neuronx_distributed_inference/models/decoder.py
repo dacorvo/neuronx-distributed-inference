@@ -82,7 +82,6 @@ class NeuronDecoderModel(nn.Module):
     def setup_attr_for_model(self):
         """
         Please provide model-specific definition for the following attributes
-            self.num_attention_heads
             self.num_key_value_heads
         """
         raise NotImplementedError("setup_attr_for_model() is not implemented")
