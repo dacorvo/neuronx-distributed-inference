@@ -24,7 +24,8 @@ except ImportError:
 
 import neuronx_distributed as nxd
 import torch_xla.core.xla_model as xm
-from neuronx_distributed.parallel_layers import utils  # noqa: E402
+from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
+from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.parallel_state import get_kv_shared_group
 from neuronxcc.starfish.penguin.targets.nki.private_api import vnc
@@ -53,7 +54,10 @@ class NeuronAttentionBase(nn.Module):
     5. update forward() method to adjust to changes from self.num_head
     """
 
-    def __init__(self, tensor_model_parallel_group: Optional[ProcessGroup] = None):
+    def __init__(self,
+                 config: InferenceConfig,
+                 neuron_config: NeuronConfig,
+                 tensor_model_parallel_group: Optional[ProcessGroup] = None):
         super().__init__()
 
         if tensor_model_parallel_group is not None:
@@ -65,38 +69,44 @@ class NeuronAttentionBase(nn.Module):
             )
             self.rank_util = SPMDRank(world_size=self.tensor_model_parallel_group.size())
         else:
-            # CPU flow doesn need rank_util and TP group now
+            # CPU flow doesn't need rank_util and TP group now
             self.tensor_model_parallel_group = None
             self.rank_util = None
 
         self.is_causal = True
-        self.num_key_value_groups = None
-        self.num_key_value_heads = None
-        self.num_heads = None
-        self.rotary_emb = None
-        self.o_proj = None
-        self.qkv_proj = None
-        self.bias = False
-        self.k_layernorm = None
-        self.q_layernorm = None
-        self.qk_layernorm = False
-        self.rms_norm_eps = None
+        self.hidden_size = config.hidden_size
+        self.num_attention_heads = config.num_attention_heads
+        self.num_key_value_heads = config.num_key_value_heads
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.max_position_embeddings = config.max_position_embeddings
+        self.rope_theta = config.rope_theta
+        self.padding_side = neuron_config.padding_side
+        self.torch_dtype = neuron_config.torch_dtype
+        self.qk_layernorm = config.neuron_config.qk_layernorm
+        self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
+        self.num_cores_per_group = config.num_cores_per_group
+        self.bias = getattr(config, "attention_bias", False)
+        self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
+        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
+        self.rms_norm_eps = config.rms_norm_eps
 
-        self.num_cores_per_group = 1
-        self.flash_decoding_enabled = False
-        self.sequence_parallel_enabled = False
-        self.sequence_dimension = None
-        self.rpl_reduce_dtype = None
+        if parallel_state.model_parallel_is_initialized():
+            self.tp_degree = neuron_config.tp_degree
+        else:
+            self.tp_degree = 1
+        self.fused_qkv = neuron_config.fused_qkv
+        self.clip_qkv = None
 
         self.o_proj_layer_name = "o_proj"
 
-    def init_gqa_properties(self):
         if (self.head_dim * self.num_attention_heads) != self.hidden_size:
             raise ValueError(
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_attention_heads})."
             )
 
+        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
+        self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.qkv_proj = GroupQueryAttention_QKV(
             hidden_size=self.hidden_size,
             head_dim=self.head_dim,
@@ -112,8 +122,8 @@ class NeuronAttentionBase(nn.Module):
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rms_norm_eps=self.rms_norm_eps,
-            qkv_kernel_enabled=self.neuron_config.qkv_kernel_enabled,
-            logical_neuron_cores=self.neuron_config.logical_neuron_cores,
+            qkv_kernel_enabled=neuron_config.qkv_kernel_enabled,
+            logical_neuron_cores=neuron_config.logical_neuron_cores,
         )
         self.o_proj = GroupQueryAttention_O(
             hidden_size=self.hidden_size,
@@ -135,11 +145,10 @@ class NeuronAttentionBase(nn.Module):
             self.qkv_proj.get_num_key_value_heads(), self.tp_degree
         )
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        if self.qk_layernorm:
-            self.q_layernorm = nn.LayerNorm(self.head_dim)
-            self.k_layernorm = nn.LayerNorm(self.head_dim)
-        self.attn_kernel_enabled = self.neuron_config.attn_kernel_enabled
-        self.logical_neuron_cores = self.neuron_config.logical_neuron_cores
+        self.q_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
+        self.k_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
+        self.attn_kernel_enabled = neuron_config.attn_kernel_enabled
+        self.logical_neuron_cores = neuron_config.logical_neuron_cores
 
     def scaled_qk(self, Q, K, attention_mask):
         QK = torch.matmul(Q, K.transpose(2, 3)) / math.sqrt(self.head_dim)
