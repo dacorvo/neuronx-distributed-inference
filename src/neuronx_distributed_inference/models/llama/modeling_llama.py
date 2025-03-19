@@ -146,36 +146,35 @@ class NeuronLlamaMLP(nn.Module):
     This class just replace the linear layers (gate_proj, up_proj and down_proj) with column and row parallel layers
     """
 
-    def __init__(self, config: InferenceConfig):
+    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
         super().__init__()
-        self.config = config
-        self.neuron_config = config.neuron_config
-        self.tp_degree = config.neuron_config.tp_degree
+        self.tp_group = get_tp_group(config)
+        self.tp_degree = neuron_config.tp_degree
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
         self.act_fn = ACT2FN[config.hidden_act]
 
         self.sequence_parallel_enabled = getattr(
-            self.neuron_config, "sequence_parallel_enabled", False
+            neuron_config, "sequence_parallel_enabled", False
         )
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rms_norm_eps = config.rms_norm_eps
-        self.mlp_kernel_enabled = self.neuron_config.mlp_kernel_enabled
-        self.quantized_mlp_kernel_enabled = self.neuron_config.quantized_mlp_kernel_enabled
-        self.rmsnorm_quantize_kernel_enabled = self.neuron_config.rmsnorm_quantize_kernel_enabled
-        self.quantized_kernel_lower_bound = self.neuron_config.quantized_kernel_lower_bound
-        self.logical_neuron_cores = self.neuron_config.logical_neuron_cores
+        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
+        self.quantized_mlp_kernel_enabled = neuron_config.quantized_mlp_kernel_enabled
+        self.rmsnorm_quantize_kernel_enabled = neuron_config.rmsnorm_quantize_kernel_enabled
+        self.quantized_kernel_lower_bound = neuron_config.quantized_kernel_lower_bound
+        self.logical_neuron_cores = neuron_config.logical_neuron_cores
         mlp_bias = getattr(config, "mlp_bias", False)
         if parallel_state.model_parallel_is_initialized():
             if self.quantized_mlp_kernel_enabled:
                 # Quantized MLP kernels expect intermediate size to be multiple of 128, so we need to pad
-                tp_degree = self.neuron_config.tp_degree
+                tp_degree = neuron_config.tp_degree
                 self.intermediate_size += (
                     get_padding_length(self.intermediate_size // tp_degree, 128) * tp_degree
                 )
                 logger.debug(f"Quantized intermediate_size: {self.intermediate_size}")
 
-                quantization_type = QuantizationType(self.neuron_config.quantization_type)
+                quantization_type = QuantizationType(neuron_config.quantization_type)
                 quantized_dtype = QuantizedDtype.F8E4M3
                 self.gate_proj = QuantizedColumnParallel(
                     input_size=self.hidden_size,
@@ -183,7 +182,7 @@ class NeuronLlamaMLP(nn.Module):
                     bias=mlp_bias,
                     gather_output=False,
                     sequence_parallel_enabled=False,
-                    dtype=config.neuron_config.torch_dtype,
+                    dtype=neuron_config.torch_dtype,
                     quantized_dtype=quantized_dtype,
                     quantization_type=quantization_type,
                     tensor_model_parallel_group=get_tp_group(config),
@@ -194,7 +193,7 @@ class NeuronLlamaMLP(nn.Module):
                     bias=mlp_bias,
                     gather_output=False,
                     sequence_parallel_enabled=False,
-                    dtype=config.neuron_config.torch_dtype,
+                    dtype=neuron_config.torch_dtype,
                     quantized_dtype=quantized_dtype,
                     quantization_type=quantization_type,
                     tensor_model_parallel_group=get_tp_group(config),
@@ -205,7 +204,7 @@ class NeuronLlamaMLP(nn.Module):
                     bias=mlp_bias,
                     quantization_type=quantization_type,
                     input_is_parallel=True,
-                    dtype=config.neuron_config.torch_dtype,
+                    dtype=neuron_config.torch_dtype,
                     quantized_dtype=quantized_dtype,
                     sequence_parallel_enabled=False,
                     quantization_per_channel_axis=0,
@@ -218,7 +217,7 @@ class NeuronLlamaMLP(nn.Module):
                     self.intermediate_size,
                     bias=mlp_bias,
                     gather_output=False,
-                    dtype=config.neuron_config.torch_dtype,
+                    dtype=neuron_config.torch_dtype,
                     pad=True,
                     sequence_parallel_enabled=False,
                     sequence_dimension=None,
@@ -229,7 +228,7 @@ class NeuronLlamaMLP(nn.Module):
                     self.intermediate_size,
                     bias=mlp_bias,
                     gather_output=False,
-                    dtype=config.neuron_config.torch_dtype,
+                    dtype=neuron_config.torch_dtype,
                     pad=True,
                     sequence_parallel_enabled=False,
                     sequence_dimension=None,
@@ -240,12 +239,12 @@ class NeuronLlamaMLP(nn.Module):
                     self.hidden_size,
                     bias=mlp_bias,
                     input_is_parallel=True,
-                    dtype=config.neuron_config.torch_dtype,
+                    dtype=neuron_config.torch_dtype,
                     pad=True,
                     sequence_parallel_enabled=self.sequence_parallel_enabled,
                     sequence_dimension=self.sequence_dimension,
                     tensor_model_parallel_group=get_tp_group(config),
-                    reduce_dtype=config.neuron_config.rpl_reduce_dtype,
+                    reduce_dtype=neuron_config.rpl_reduce_dtype,
                 )
 
             if self.mlp_kernel_enabled:
@@ -311,7 +310,7 @@ class NeuronLlamaMLP(nn.Module):
                 x = gather_from_sequence_parallel_region(
                     quant_rmsnorm_out,
                     self.sequence_dimension,
-                    process_group=get_tp_group(self.config),
+                    process_group=self.tp_group,
                 )
 
             else:
@@ -319,7 +318,7 @@ class NeuronLlamaMLP(nn.Module):
                     "Running Quantized MLP kernel with external (native compiler) sequence-parallel RMSnorm!"
                 )
                 x = gather_from_sequence_parallel_region(
-                    x, self.sequence_dimension, process_group=get_tp_group(self.config)
+                    x, self.sequence_dimension, process_group=self.tp_group
                 )
 
         # Build output tensor
@@ -394,7 +393,7 @@ class NeuronLlamaMLP(nn.Module):
         # All-reduce or reduce-scatter, depending on whether SP is enabled
         if self.sequence_parallel_enabled:
             output_tensor = reduce_scatter_to_sequence_parallel_region(
-                output_tensor, self.sequence_dimension, process_group=get_tp_group(self.config)
+                output_tensor, self.sequence_dimension, process_group=self.tp_group
             )
         else:
             output_tensor = reduce_from_tensor_model_parallel_region(output_tensor)
@@ -420,7 +419,7 @@ class NeuronLlamaMLP(nn.Module):
 
         if self.sequence_parallel_enabled:
             x = gather_from_sequence_parallel_region(
-                x, self.sequence_dimension, process_group=get_tp_group(self.config)
+                x, self.sequence_dimension, process_group=self.tp_group
             )
 
         # Build output tensor
@@ -485,11 +484,11 @@ class NeuronLlamaMLP(nn.Module):
         # All-reduce or reduce-scatter, depending on whether SP is enabled
         if self.sequence_parallel_enabled:
             output_tensor = reduce_scatter_to_sequence_parallel_region(
-                output_tensor, self.sequence_dimension, process_group=get_tp_group(self.config)
+                output_tensor, self.sequence_dimension, process_group=self.tp_group
             )
         else:
             output_tensor = reduce_from_tensor_model_parallel_region(
-                output_tensor, process_group=get_tp_group(self.config)
+                output_tensor, process_group=self.tp_group
             )
 
         logger.debug(f"MLP output shape {output_tensor.shape}")
@@ -501,7 +500,7 @@ class NeuronLlamaMLP(nn.Module):
         # avoid 2 all-gathers from up and gate projections
         if self.sequence_parallel_enabled:
             x = gather_from_sequence_parallel_region(
-                x, self.sequence_dimension, process_group=get_tp_group(self.config)
+                x, self.sequence_dimension, process_group=self.tp_group
             )
 
         gate_proj_output = self.gate_proj(x)
@@ -686,7 +685,8 @@ class NeuronLlamaDecoderLayer(nn.Module):
         self.self_attn = NeuronLlamaAttention(
             config=config, tensor_model_parallel_group=get_tp_group(config)
         )
-        self.mlp = NeuronLlamaMLP(config)
+        neuron_config = config.neuron_config
+        self.mlp = NeuronLlamaMLP(config, neuron_config)
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
