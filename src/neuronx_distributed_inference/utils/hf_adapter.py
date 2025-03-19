@@ -641,7 +641,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
             # 6. Update the args for the next iteration.
             #    Feed the last correct token to the next loop
             new_token = valid_tokens[:, -1:]
-            if new_token[0] == torch.tensor(eos_token_id):
+            if new_token[0] in torch.tensor(eos_token_id):
                 break
             input_ids = valid_tokens[:, -1:]
             candidate_input_ids = valid_tokens[:, -1:]
