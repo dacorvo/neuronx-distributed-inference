@@ -175,10 +175,10 @@ class NeuronMixtralDecoderLayer(nn.Module):
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: MixtralInferenceConfig, layer_idx: int):
+    def __init__(self, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = NeuronMixtralAttention(config, config.neuron_config)
+        self.self_attn = NeuronMixtralAttention(config, neuron_config)
 
         self.mlp = initialize_moe_module(
             config=config,
@@ -266,7 +266,7 @@ class NeuronMixtralModel(NeuronDecoderModel):
         )
         self.layers = nn.ModuleList(
             [
-                NeuronMixtralDecoderLayer(config, layer_idx)
+                NeuronMixtralDecoderLayer(config, neuron_config, layer_idx)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )

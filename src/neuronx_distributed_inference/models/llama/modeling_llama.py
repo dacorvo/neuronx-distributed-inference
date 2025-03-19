@@ -646,13 +646,12 @@ class NeuronLlamaDecoderLayer(nn.Module):
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: InferenceConfig):
+    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronLlamaAttention(
-            config, config.neuron_config, tensor_model_parallel_group=get_tp_group(config)
+            config, neuron_config, tensor_model_parallel_group=get_tp_group(config)
         )
-        neuron_config = config.neuron_config
         self.mlp = NeuronLlamaMLP(config, neuron_config)
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
@@ -809,7 +808,7 @@ class NeuronLlamaModel(NeuronDecoderModel):
                 updated_configs.append(non_quant_config)
             else:
                 updated_configs.append(config)
-        self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(conf) for conf in updated_configs])
+        self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(conf, conf.neuron_config) for conf in updated_configs])
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 
