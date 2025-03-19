@@ -71,21 +71,10 @@ class NeuronDecoderModel(nn.Module):
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=self.config.neuron_config.tp_degree)
         self.num_cores_per_group = config.num_cores_per_group
-
-        self.init_model()
         if config.neuron_config.on_device_sampling_config is not None:
             self.sampler = Sampler(config.neuron_config)
         self.kv_mgr = KVCacheManager(config, num_kv_head=self.config.num_key_value_heads)
 
-    def init_model(self):
-        """
-        Please provide definition for the following components:
-            self.embed_tokens
-            self.layers
-            self.norm
-            self.lm_head
-        """
-        raise NotImplementedError("init_model() is not implemented")
 
     def initialize_process_group(self, seed: int = 0):
         if not torch.dist.is_initialized():

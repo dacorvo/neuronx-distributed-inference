@@ -793,56 +793,57 @@ class NeuronLlamaModel(NeuronDecoderModel):
     The neuron version of the LlamaModel
     """
 
-    def init_model(self):
-        self.padding_idx = self.config.pad_token_id
-        self.vocab_size = self.config.vocab_size
+    def __init__(self, config: InferenceConfig):
+        super().__init__(config)
+
+        neuron_config = config.neuron_config
 
         if parallel_state.model_parallel_is_initialized():
             self.embed_tokens = ParallelEmbedding(
-                self.config.vocab_size,
-                self.config.hidden_size,
-                self.padding_idx,
-                dtype=self.config.neuron_config.torch_dtype,
-                shard_across_embedding=not self.config.neuron_config.vocab_parallel,
+                config.vocab_size,
+                config.hidden_size,
+                config.pad_token_id,
+                dtype=neuron_config.torch_dtype,
+                shard_across_embedding=not neuron_config.vocab_parallel,
                 sequence_parallel_enabled=False,
                 pad=True,
-                tensor_model_parallel_group=get_tp_group(self.config),
-                use_spmd_rank=self.config.neuron_config.vocab_parallel,
+                tensor_model_parallel_group=get_tp_group(config),
+                use_spmd_rank=neuron_config.vocab_parallel,
             )
 
             self.lm_head = ColumnParallelLinear(
-                self.config.hidden_size,
-                self.config.vocab_size,
-                gather_output=self.config.neuron_config.on_device_sampling_config is None,
+                config.hidden_size,
+                config.vocab_size,
+                gather_output=neuron_config.on_device_sampling_config is None,
                 bias=False,
                 pad=True,
                 tensor_model_parallel_group=get_tp_group(self.config),
             )
         else:
             self.embed_tokens = nn.Embedding(
-                self.config.vocab_size,
-                self.config.hidden_size,
-                self.padding_idx,
+                config.vocab_size,
+                config.hidden_size,
+                config.pad_token_id,
             )
             self.lm_head = nn.Linear(
-                self.config.hidden_size,
-                self.config.vocab_size,
+                config.hidden_size,
+                config.vocab_size,
                 bias=False,
             )
 
         # In the target fp8 checkpoint, the 1st and last
         # layers are not using fp8.
         updated_configs = []
-        for i in range(self.config.num_hidden_layers):
+        for i in range(config.num_hidden_layers):
             # TODO: Remove hardcoded code to have non-quantized MLPs for first and last decoder block
-            if i == 0 or i == self.config.num_hidden_layers - 1:
-                non_quant_config = copy.deepcopy(self.config)
+            if i == 0 or i == config.num_hidden_layers - 1:
+                non_quant_config = copy.deepcopy(config)
                 non_quant_config.neuron_config.quantized_mlp_kernel_enabled = False
                 updated_configs.append(non_quant_config)
             else:
-                updated_configs.append(self.config)
+                updated_configs.append(config)
         self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(conf) for conf in updated_configs])
-        self.norm = get_rmsnorm_cls()(self.config.hidden_size, eps=self.config.rms_norm_eps)
+        self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):

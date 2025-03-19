@@ -270,28 +270,29 @@ class NeuronMixtralModel(NeuronDecoderModel):
     The forward function of this class is traced.
     """
 
-    def init_model(self):
-        self.padding_idx = self.config.pad_token_id
-        self.vocab_size = self.config.vocab_size
+    def __init__(self, config: InferenceConfig):
+        super().__init__(config)
+
+        neuron_config = config.neuron_config
 
         self.embed_tokens = ParallelEmbedding(
-            self.config.vocab_size,
-            self.config.hidden_size,
-            self.padding_idx,
-            dtype=self.config.neuron_config.torch_dtype,
+            config.vocab_size,
+            config.hidden_size,
+            config.pad_token_id,
+            dtype=neuron_config.torch_dtype,
             shard_across_embedding=True,
         )
         self.layers = nn.ModuleList(
             [
-                NeuronMixtralDecoderLayer(self.config, layer_idx)
-                for layer_idx in range(self.config.num_hidden_layers)
+                NeuronMixtralDecoderLayer(config, layer_idx)
+                for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = get_rmsnorm_cls(self.config)(self.config.hidden_size, eps=self.config.rms_norm_eps)
+        self.norm = get_rmsnorm_cls(config)(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = ColumnParallelLinear(
-            self.config.hidden_size,
-            self.config.vocab_size,
-            gather_output=self.config.neuron_config.on_device_sampling_config is None,
+            config.hidden_size,
+            config.vocab_size,
+            gather_output=neuron_config.on_device_sampling_config is None,
             bias=False,
         )
 
