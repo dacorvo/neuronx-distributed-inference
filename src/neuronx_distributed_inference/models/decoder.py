@@ -72,19 +72,10 @@ class NeuronDecoderModel(nn.Module):
         self.rank_util = SPMDRank(world_size=self.config.neuron_config.tp_degree)
         self.num_cores_per_group = config.num_cores_per_group
 
-        self.setup_attr_for_model()
         self.init_model()
         if config.neuron_config.on_device_sampling_config is not None:
             self.sampler = Sampler(config.neuron_config)
-        self.kv_mgr = KVCacheManager(config, num_kv_head=self.num_key_value_heads)
-
-
-    def setup_attr_for_model(self):
-        """
-        Please provide model-specific definition for the following attributes
-            self.num_key_value_heads
-        """
-        raise NotImplementedError("setup_attr_for_model() is not implemented")
+        self.kv_mgr = KVCacheManager(config, num_kv_head=self.config.num_key_value_heads)
 
     def init_model(self):
         """

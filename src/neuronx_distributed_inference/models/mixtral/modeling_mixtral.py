@@ -270,9 +270,6 @@ class NeuronMixtralModel(NeuronDecoderModel):
     The forward function of this class is traced.
     """
 
-    def setup_attr_for_model(self):
-        self.num_key_value_heads = self.config.num_key_value_heads
-
     def init_model(self):
         self.padding_idx = self.config.pad_token_id
         self.vocab_size = self.config.vocab_size
