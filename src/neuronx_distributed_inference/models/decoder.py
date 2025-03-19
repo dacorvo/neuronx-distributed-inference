@@ -82,7 +82,6 @@ class NeuronDecoderModel(nn.Module):
     def setup_attr_for_model(self):
         """
         Please provide model-specific definition for the following attributes
-            self.tp_degree
             self.hidden_size
             self.num_attention_heads
             self.num_key_value_heads
