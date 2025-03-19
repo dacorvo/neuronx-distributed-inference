@@ -82,7 +82,6 @@ class NeuronDecoderModel(nn.Module):
     def setup_attr_for_model(self):
         """
         Please provide model-specific definition for the following attributes
-            self.hidden_size
             self.num_attention_heads
             self.num_key_value_heads
         """
@@ -315,9 +314,10 @@ class NeuronDecoderModel(nn.Module):
                 kvcache_buffer=kv_cache,
             )
 
+        batch_size, num_tokens, hidden_size = hidden_states.shape
         if self.padding_side == "left":
-            index = torch.tensor([hidden_states.shape[1] - 1], device=hidden_states.device)
-            index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
+            index = torch.tensor([num_tokens - 1], device=hidden_states.device)
+            index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
             hidden_states = torch.gather(hidden_states, dim=1, index=index)
         else:
             # speculative decoding case; only batch_size=1
@@ -331,13 +331,13 @@ class NeuronDecoderModel(nn.Module):
                 index = (
                     index.unsqueeze(0)
                     .unsqueeze(2)
-                    .expand(self.batch_size, self.speculation_length, self.hidden_size)
+                    .expand(batch_size, self.speculation_length, hidden_size)
                 )
                 hidden_states = torch.gather(hidden_states, dim=1, index=index)
             else:
                 # simple token generation
                 index = torch.max(position_ids, dim=1, keepdim=True).indices
-                index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
+                index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
                 hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
         logits = self.lm_head(hidden_states)

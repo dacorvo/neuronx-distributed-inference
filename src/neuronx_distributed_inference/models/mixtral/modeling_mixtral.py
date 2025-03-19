@@ -271,7 +271,6 @@ class NeuronMixtralModel(NeuronDecoderModel):
     """
 
     def setup_attr_for_model(self):
-        self.hidden_size = self.config.hidden_size
         self.num_attention_heads = self.config.num_attention_heads
         self.num_key_value_heads = self.config.num_key_value_heads
 
@@ -292,7 +291,7 @@ class NeuronMixtralModel(NeuronDecoderModel):
                 for layer_idx in range(self.config.num_hidden_layers)
             ]
         )
-        self.norm = get_rmsnorm_cls(self.config)(self.hidden_size, eps=self.config.rms_norm_eps)
+        self.norm = get_rmsnorm_cls(self.config)(self.config.hidden_size, eps=self.config.rms_norm_eps)
         self.lm_head = ColumnParallelLinear(
             self.config.hidden_size,
             self.config.vocab_size,
