@@ -86,7 +86,6 @@ class NeuronDecoderModel(nn.Module):
             self.hidden_size
             self.num_attention_heads
             self.num_key_value_heads
-            self.buckets
         """
         raise NotImplementedError("setup_attr_for_model() is not implemented")
 

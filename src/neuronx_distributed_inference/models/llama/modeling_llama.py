@@ -798,7 +798,6 @@ class NeuronLlamaModel(NeuronDecoderModel):
         self.hidden_size = self.config.hidden_size
         self.num_attention_heads = self.config.num_attention_heads
         self.num_key_value_heads = self.config.num_key_value_heads
-        self.buckets = self.config.neuron_config.buckets
 
     def init_model(self):
         self.padding_idx = self.config.pad_token_id
