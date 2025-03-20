@@ -38,13 +38,6 @@ def is_compiled(model_path):
     return os.path.isfile(model_path + COMPILED_MODEL_FILE_NAME)
 
 
-def init_custom_process_group_fn(config):
-    if hasattr(config, "fused_spec_config") and config.fused_spec_config is not None:
-        if config.fused_spec_config.draft_config.neuron_config.tp_degree is not None:
-            draft_tp = config.fused_spec_config.draft_config.neuron_config.tp_degree
-            parallel_state.initialize_speculative_draft_group(draft_tp)
-
-
 class NeuronApplicationBase(torch.nn.Module):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
@@ -68,7 +61,6 @@ class NeuronApplicationBase(torch.nn.Module):
         self.validate_config(config)
         self.config = config
         self.neuron_config = config.neuron_config
-        self.fused_spec_config = config.fused_spec_config
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self.model_path = model_path
         self.models: List[ModelWrapper] = []
@@ -80,10 +72,6 @@ class NeuronApplicationBase(torch.nn.Module):
     def get_builder(self, debug=False):
         if self._builder is None:
             base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
-
-            # Use this function to intialize non standard TP/PP/DP distributed
-            # process groups.
-            custom_group_fn = partial(init_custom_process_group_fn, self.config)
 
             self._builder = ModelBuilder(
                 router=None,
@@ -97,7 +85,6 @@ class NeuronApplicationBase(torch.nn.Module):
                 compiler_workdir=base_compile_work_dir,
                 debug=debug,
                 num_cores_per_group=self.config.num_cores_per_group,
-                init_custom_process_group_fn=custom_group_fn,
                 logical_neuron_cores=self.neuron_config.logical_neuron_cores,
                 weights_to_skip_layout_optimization=self.config.neuron_config.weights_to_skip_layout_optimization,
             )
@@ -218,29 +205,6 @@ class NeuronApplicationBase(torch.nn.Module):
 
         if self.config.neuron_config.quantized:
             return self.get_quantized_state_dict(self.config)
-        elif self.config.neuron_config.enable_fused_speculation:
-            assert self.fused_spec_config is not None
-            self.__class__._FUSED_PREFIX = "draft_model"
-            model_sd = self.get_state_dict(
-                self.fused_spec_config.draft_model_path, self.fused_spec_config.draft_config
-            )
-            self.__class__._FUSED_PREFIX = "target_model"
-            model_sd.update(self.get_state_dict(self.model_path, self.config))
-
-            if self.neuron_config.torch_dtype != torch.float32:
-                for name, param in model_sd.items():
-                    if torch.is_floating_point(param) and param.dtype not in [torch.float8_e4m3fn]:
-                        # only cast floating types
-                        if name.endswith("scale"):
-                            warnings.warn(
-                                f"Found float32 weights in quantized checkpoint: {name}. Will skip converting to bfloat16 as its scale"
-                            )
-                        else:
-                            warnings.warn(
-                                f"Found float32 weights in quantized checkpoint: {name}. Will convert to bfloat16"
-                            )
-                            model_sd[name] = param.to(self.neuron_config.torch_dtype)
-            return model_sd
         else:
             model_sd = self.get_state_dict(self.model_path, self.config)
             if self.neuron_config.torch_dtype != torch.float32:

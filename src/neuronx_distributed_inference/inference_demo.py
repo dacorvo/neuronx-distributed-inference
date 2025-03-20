@@ -13,7 +13,6 @@ from transformers import AutoTokenizer, GenerationConfig
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
 from neuronx_distributed_inference.models.config import (
-    FusedSpecNeuronConfig,
     OnDeviceSamplingConfig,
     to_torch_dtype,
 )
@@ -231,7 +230,6 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         draft_neuron_config = copy.deepcopy(config.neuron_config)
         draft_neuron_config.speculation_length = 0
         draft_neuron_config.trace_tokengen_model = True
-        draft_neuron_config.enable_fused_speculation = False
 
         if args.draft_model_tp_degree is not None:
             draft_neuron_config.tp_degree = args.draft_model_tp_degree
@@ -239,16 +237,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         draft_config = model_cls.get_config_cls()(
             draft_neuron_config, load_config=load_pretrained_config(args.draft_model_path)
         )
-        if neuron_config.enable_fused_speculation:
-            fused_spec_config = FusedSpecNeuronConfig(
-                model_cls._model_cls,
-                draft_config=draft_config,
-                draft_model_path=args.draft_model_path,
-            )
-            config.fused_spec_config = fused_spec_config
-
-        else:
-            draft_model = model_cls(args.draft_model_path, draft_config)
+        draft_model = model_cls(args.draft_model_path, draft_config)
 
     model = model_cls(args.model_path, config)
 
@@ -261,7 +250,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     if not args.skip_compile:
         print("\nCompiling and saving model...")
         model.compile(args.compiled_model_path, debug=args.hlo_debug)
-        if draft_model is not None and neuron_config.enable_fused_speculation is False:
+        if draft_model is not None:
             print("\nCompiling and saving draft model...")
             draft_model.compile(args.compiled_draft_model_path)
 
@@ -280,7 +269,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     model_loading_time = loading_end_time - compiling_end_time
     print(f"Total model loading time: {model_loading_time} seconds")
 
-    if draft_model is not None and neuron_config.enable_fused_speculation is False:
+    if draft_model is not None:
         print("\nLoading draft model to Neuron...")
         draft_model.load(args.compiled_draft_model_path)
 

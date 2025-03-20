@@ -138,7 +138,6 @@ class NeuronConfig:
         self.trace_tokengen_model = kwargs.pop("trace_tokengen_model", True)
         self.speculation_length = kwargs.pop("speculation_length", 0)
         self.spec_batch_size = kwargs.pop("spec_batch_size", self.batch_size)
-        self.enable_fused_speculation = kwargs.pop("enable_fused_speculation", False)
 
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
@@ -177,14 +176,6 @@ class NeuronConfig:
         #   Tiling the sequence dimension of the KV cache enables specific
         #   compiler optimizations like cascaded reductions
         self.kv_cache_tiling = False
-        if self.enable_fused_speculation:
-            # TODO once compiler fixes CR 158191111 we can turn back output tiling on
-            # For all models. For now only use it for fused speculation that needs
-            # chaining of aliased tensors.
-            if self.max_length > 128 and self.max_length % 128 == 0:
-                # Our tile size is 128. We can tile only if sequence length is
-                # divisible by 128.
-                self.kv_cache_tiling = True
 
         # Kernels
         self.attn_kernel_enabled = kwargs.pop("attn_kernel_enabled", False)
@@ -252,10 +243,9 @@ class InferenceConfig:
     attribute_map: Dict[str, str] = {}
 
     def __init__(
-        self, neuron_config: NeuronConfig, fused_spec_config=None, load_config=None, **kwargs
+        self, neuron_config: NeuronConfig, load_config=None, **kwargs
     ):
         self.neuron_config = neuron_config
-        self.fused_spec_config = fused_spec_config
         if load_config is not None:
             load_config(self)
         else:
@@ -359,53 +349,11 @@ class InferenceConfig:
             merged_kwargs["neuron_config"] = cls.get_neuron_config_cls()(
                 **merged_kwargs["neuron_config"]
             )
-        # Initialize FusedSpecNeuronConfig from dict.
-        if "fused_spec_config" in merged_kwargs and isinstance(
-            merged_kwargs["fused_spec_config"], dict
-        ):
-            if "draft_config" in merged_kwargs["fused_spec_config"] and isinstance(
-                merged_kwargs["fused_spec_config"]["draft_config"], dict
-            ):
-                # Initialize NeuronConfig from dict.
-                if "neuron_config" in merged_kwargs["fused_spec_config"][
-                    "draft_config"
-                ] and isinstance(
-                    merged_kwargs["fused_spec_config"]["draft_config"]["neuron_config"], dict
-                ):
-                    merged_kwargs["fused_spec_config"]["draft_config"][
-                        "neuron_config"
-                    ] = cls.get_neuron_config_cls()(
-                        **merged_kwargs["fused_spec_config"]["draft_config"]["neuron_config"]
-                    )
-                merged_kwargs["fused_spec_config"]["draft_config"] = cls(
-                    **merged_kwargs["fused_spec_config"]["draft_config"]
-                )
-            merged_kwargs["fused_spec_config"] = FusedSpecNeuronConfig(
-                **merged_kwargs["fused_spec_config"]
-            )
-
         return cls(**merged_kwargs)
 
     @classmethod
     def get_neuron_config_cls(cls) -> Type[NeuronConfig]:
         return NeuronConfig
-
-
-class FusedSpecNeuronConfig:
-    """
-    Base class for fused speculative decoding on Neuron.
-    """
-
-    # attribute_map: Dict[str, str] = {}
-    def __init__(
-        self,
-        worker_cls,
-        draft_config: InferenceConfig = None,
-        draft_model_path: str = None,
-    ) -> None:
-        self.worker_cls = worker_cls
-        self.draft_config = draft_config
-        self.draft_model_path = draft_model_path
 
 
 class OnDeviceSamplingConfig:

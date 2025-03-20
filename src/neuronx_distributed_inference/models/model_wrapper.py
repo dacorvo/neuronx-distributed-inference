@@ -25,7 +25,6 @@ from neuronx_distributed_inference.modules.generation.sampling import prepare_sa
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
-FUSED_SPECULATION_MODEL_TAG = "fused_speculation_model"
 
 
 def get_bucket_model_config_from_tag(tag, config: InferenceConfig):
@@ -52,16 +51,13 @@ def get_bucket_model_config_from_tag(tag, config: InferenceConfig):
     elif (
         tag == TOKEN_GENERATION_MODEL_TAG
         or tag == SPECULATION_MODEL_TAG
-        or tag == FUSED_SPECULATION_MODEL_TAG
     ):
         return BucketModelConfig(
             bucket_kernel=get_generation_model_bk,
             bucket_kernel_constant_args=(
                 torch.tensor(config.neuron_config.buckets),
                 config.neuron_config.padding_side,
-                config.neuron_config.speculation_length
-                if tag == FUSED_SPECULATION_MODEL_TAG
-                else 0,
+                0,
             ),
             shared_state_buffer=None,
             func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
@@ -109,9 +105,6 @@ class ModelWrapper(torch.nn.Module):
                 "--vectorize-dge-dma "
                 "--vectorize-strided-dma "
             )
-
-            if self.neuron_config.enable_fused_speculation:
-                tensorizer_options += "--optimize-alias-chain "
 
             self.compiler_args = (
                 "--auto-cast=none --model-type=transformer "
@@ -423,42 +416,20 @@ class DecoderModelInstance(BaseModelInstance):
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
             self.module.n_positions = self.neuron_config.buckets[bucket_rank]
-            if self.neuron_config.enable_fused_speculation:
-                self.module.draft_model.n_positions = self.neuron_config.buckets[bucket_rank]
-                self.module.target_model.n_positions = self.neuron_config.buckets[bucket_rank]
 
         # Currently we have to init an input_output_aliases map for
         # each buckets, otherwise it will fail the aliasing setup when
         # generating HLO
         self.input_output_aliases = {}
         num_output_from_trace = 1 if not self.neuron_config.output_logits else 2
-        if self.neuron_config.enable_fused_speculation:
-            if self.module.draft_model.kv_mgr is not None:
-                draft_past_key_values = self.module.draft_model.kv_mgr.past_key_values
-            else:
-                draft_past_key_values = self.module.draft_model.past_key_values
-
-            if self.module.target_model.kv_mgr is not None:
-                target_past_key_values = self.module.target_model.kv_mgr.past_key_values
-            else:
-                target_past_key_values = self.module.target_model.past_key_values
-
-            for i in range(len(draft_past_key_values)):
-                self.input_output_aliases[draft_past_key_values[i]] = num_output_from_trace * 2 + i
-            for j in range(len(target_past_key_values)):
-                self.input_output_aliases[target_past_key_values[j]] = (
-                    num_output_from_trace * 2 + len(draft_past_key_values)
-                ) + j
-
+        # TODO: This else block is a short-term fix for Llava/ViT models to use DecoderModelInstance.
+        #       Long-term, these models should use a different implementation of BaseModelInstance.
+        if self.module.kv_mgr is not None:
+            past_key_values = self.module.kv_mgr.past_key_values
         else:
-            # TODO: This else block is a short-term fix for Llava/ViT models to use DecoderModelInstance.
-            #       Long-term, these models should use a different implementation of BaseModelInstance.
-            if self.module.kv_mgr is not None:
-                past_key_values = self.module.kv_mgr.past_key_values
-            else:
-                past_key_values = self.module.past_key_values
-            for i in range(len(past_key_values)):
-                self.input_output_aliases[past_key_values[i]] = num_output_from_trace + i
+            past_key_values = self.module.past_key_values
+        for i in range(len(past_key_values)):
+            self.input_output_aliases[past_key_values[i]] = num_output_from_trace + i
         return self.module, self.input_output_aliases
 
 

@@ -55,17 +55,6 @@ def get_generate_outputs_from_token_ids(
                     "do_sample": False,
                 }
             )
-        elif model.neuron_config.enable_fused_speculation:
-            generate_kwargs.update(
-                {
-                    "prompt_lookup_num_tokens": model.neuron_config.speculation_length,
-                }
-            )
-            generate_kwargs.update(
-                {
-                    "do_sample": False,
-                }
-            )
 
     # If an attention mask is provided, the inputs are also expected to be padded to the correct shape.
     if attention_mask is None:
@@ -237,7 +226,7 @@ def check_accuracy(
             expected_token_ids = expected_token_ids[:num_tokens_to_check]
             output_token_ids = output_token_ids[:num_tokens_to_check]
 
-        if draft_model is not None or neuron_config.enable_fused_speculation:
+        if draft_model is not None:
             # Handle corner scenario where last few tokens are not generated as part of speculation.
             assert (
                 abs(expected_token_ids.shape[-1] - output_token_ids.shape[-1])
@@ -268,12 +257,7 @@ def check_accuracy_logits(
     image=None,
     num_image_per_prompt=1,
 ):
-    if neuron_model.neuron_config.enable_fused_speculation:
-        generation_config.prompt_lookup_num_tokens = neuron_model.neuron_config.speculation_length
-        assert (
-            neuron_model.neuron_config.output_logits
-        ), "output_logits is required to enable logits tests for fused speculation"
-    elif neuron_model.neuron_config.on_device_sampling_config is not None:
+    if neuron_model.neuron_config.on_device_sampling_config is not None:
         raise ValueError("Logits validation is not supported with on-device sampling.")
 
     if prompt is None:
