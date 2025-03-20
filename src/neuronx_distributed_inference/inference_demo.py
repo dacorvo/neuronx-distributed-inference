@@ -23,7 +23,6 @@ from neuronx_distributed_inference.utils.accuracy import (
     check_accuracy_logits,
     get_generate_outputs,
 )
-from neuronx_distributed_inference.utils.benchmark import benchmark_sampling
 from neuronx_distributed_inference.utils.distributed import get_init_rank, get_init_world_size
 from neuronx_distributed_inference.utils.hf_adapter import load_pretrained_config
 from neuronx_distributed_inference.utils.random import set_random_seed
@@ -60,7 +59,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--compiled-model-path", type=str, required=True)
 
     # Evaluation
-    run_parser.add_argument("--benchmark", action="store_true")
     run_parser.add_argument(
         "--check-accuracy-mode",
         type=CheckAccuracyMode,
@@ -317,10 +315,6 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         draft_model=draft_model,
         max_new_tokens=args.max_new_tokens
     )
-
-    # Benchmarking.
-    if args.benchmark:
-        benchmark_sampling(model, draft_model, generation_config)
 
 
 def load_tokenizer(model_path, compiled_model_path, neuron_config):
