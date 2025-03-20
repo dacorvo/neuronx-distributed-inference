@@ -727,10 +727,8 @@ class NeuronLlamaModel(NeuronDecoderModel):
     The neuron version of the LlamaModel
     """
 
-    def __init__(self, config: InferenceConfig):
-        super().__init__(config)
-
-        neuron_config = config.neuron_config
+    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
+        super().__init__(config, neuron_config)
 
         if parallel_state.model_parallel_is_initialized():
             self.embed_tokens = ParallelEmbedding(
@@ -771,12 +769,12 @@ class NeuronLlamaModel(NeuronDecoderModel):
         for i in range(config.num_hidden_layers):
             # TODO: Remove hardcoded code to have non-quantized MLPs for first and last decoder block
             if i == 0 or i == config.num_hidden_layers - 1:
-                non_quant_config = copy.deepcopy(config)
-                non_quant_config.neuron_config.quantized_mlp_kernel_enabled = False
+                non_quant_config = copy.deepcopy(neuron_config)
+                non_quant_config.quantized_mlp_kernel_enabled = False
                 updated_configs.append(non_quant_config)
             else:
-                updated_configs.append(config)
-        self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(conf, conf.neuron_config) for conf in updated_configs])
+                updated_configs.append(neuron_config)
+        self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(config, neuron_conf) for neuron_conf in updated_configs])
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 

@@ -252,10 +252,8 @@ class NeuronMixtralModel(NeuronDecoderModel):
     The forward function of this class is traced.
     """
 
-    def __init__(self, config: InferenceConfig):
-        super().__init__(config)
-
-        neuron_config = config.neuron_config
+    def __init__(self, config: InferenceConfig, neuron_config: MoENeuronConfig):
+        super().__init__(config, neuron_config)
 
         self.embed_tokens = ParallelEmbedding(
             config.vocab_size,

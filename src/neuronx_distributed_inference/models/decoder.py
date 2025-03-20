@@ -54,26 +54,26 @@ class NeuronDecoderModel(nn.Module):
     The forward() function will be traced and compiled by NxD.
     """
 
-    def __init__(self, config: InferenceConfig):
+    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
         super().__init__()
 
         self.config = config
         self.sampler = None
         self.kv_mgr = None
-        self.neuron_config = config.neuron_config
-        self.batch_size = config.neuron_config.batch_size
-        self.n_positions = config.neuron_config.n_positions
+        self.neuron_config = neuron_config
+        self.batch_size = neuron_config.batch_size
+        self.n_positions = neuron_config.n_positions
         self.vocab_size = config.vocab_size
-        self.speculation_length = config.neuron_config.speculation_length
-        self.padding_side = config.neuron_config.padding_side
-        self.max_length = config.neuron_config.max_length
-        self.sequence_parallel_enabled = config.neuron_config.sequence_parallel_enabled
+        self.speculation_length = neuron_config.speculation_length
+        self.padding_side = neuron_config.padding_side
+        self.max_length = neuron_config.max_length
+        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
-        self.rank_util = SPMDRank(world_size=self.config.neuron_config.tp_degree)
+        self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
         self.num_cores_per_group = config.num_cores_per_group
-        if config.neuron_config.on_device_sampling_config is not None:
-            self.sampler = Sampler(config.neuron_config)
-        self.kv_mgr = KVCacheManager(config, num_kv_head=self.config.num_key_value_heads)
+        if neuron_config.on_device_sampling_config is not None:
+            self.sampler = Sampler(neuron_config)
+        self.kv_mgr = KVCacheManager(config, num_kv_head=config.num_key_value_heads)
 
 
     def initialize_process_group(self, seed: int = 0):
@@ -755,6 +755,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
 
         self.fused_spec_model = self.model_wrapper(
             config=new_config,
+            neuron_config=new_config.neuron_config,
             model_cls=self._model_cls,
             # call
             tag=FUSED_SPECULATION_MODEL_TAG,
@@ -784,6 +785,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
 
         self.context_encoding_model = self.model_wrapper(
             config=new_config,
+            neuron_config=new_config.neuron_config,
             model_cls=self._model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
@@ -815,6 +817,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
 
         self.token_generation_model = self.model_wrapper(
             config=new_config,
+            neuron_config=new_config.neuron_config,
             model_cls=self._model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
@@ -847,6 +850,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
 
         self.speculation_model = self.model_wrapper(
             config=new_config,
+            neuron_config=new_config.neuron_config,
             model_cls=self._model_cls,
             tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization

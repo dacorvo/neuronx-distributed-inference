@@ -15,7 +15,7 @@ from neuronx_distributed.trace import parallel_model_load, parallel_model_trace
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
 
-from neuronx_distributed_inference.models.config import InferenceConfig
+from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
 from neuronx_distributed_inference.modules.autobucketing import (
     get_context_encoder_bk,
     get_generation_model_bk,
@@ -76,6 +76,7 @@ class ModelWrapper(torch.nn.Module):
     def __init__(
         self,
         config: InferenceConfig,
+        neuron_config: NeuronConfig,
         model_cls,
         tag="",
         compiler_args: str = None,
@@ -84,7 +85,7 @@ class ModelWrapper(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
-        self.neuron_config = config.neuron_config
+        self.neuron_config = neuron_config
 
         if not self.neuron_config.torch_dtype:
             self.neuron_config.torch_dtype = torch.float32
@@ -170,7 +171,7 @@ class ModelWrapper(torch.nn.Module):
         self.model = parallel_model_load(os.path.join(serialize_base_path, self.tag))
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        self.model = self.model_cls(self.config)
+        self.model = self.model_cls(self.config, self.neuron_config)
         self.model.load_state_dict(state_dict, strict=strict, assign=assign)
 
     def input_generator(
@@ -213,6 +214,7 @@ class ModelWrapper(torch.nn.Module):
         return DecoderModelInstance(
             model_cls=self.model_cls,
             config=self.config,
+            neuron_config=self.neuron_config,
             **self.model_init_kwargs,
         )
 
@@ -372,19 +374,19 @@ class ModelWrapper(torch.nn.Module):
 
 
 class DecoderModelInstance(BaseModelInstance):
-    def __init__(self, model_cls, config: InferenceConfig, **kwargs):
+    def __init__(self, model_cls, config: InferenceConfig, neuron_config: NeuronConfig, **kwargs):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None
         self.config = config
-        self.neuron_config = config.neuron_config
+        self.neuron_config = neuron_config
         self.kwargs = kwargs if kwargs is not None else {}
 
     def initialize_process_group(self, world_size):
         self.model_cls.initialize_process_group(world_size)
 
     def load_module(self):
-        float_model = self.model_cls(self.config, **self.kwargs)
+        float_model = self.model_cls(self.config, self.neuron_config, **self.kwargs)
         float_model.eval()
 
         if self.neuron_config.torch_dtype != torch.float32:
@@ -463,7 +465,7 @@ class DecoderModelInstance(BaseModelInstance):
 def get_trace_callable(model_cls, config: InferenceConfig, bucket_rank=None):
     if bucket_rank is not None:
         config.neuron_config.n_positions = config.neuron_config.buckets[bucket_rank]
-    float_model = model_cls(config)
+    float_model = model_cls(config, config.neuron_config)
     float_model.eval()
     if config.neuron_config.torch_dtype != torch.float32:
         float_model.to(config.neuron_config.torch_dtype)
