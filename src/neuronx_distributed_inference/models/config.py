@@ -213,15 +213,6 @@ class NeuronConfig:
             assert self.quantization_dtype == "f8e4m3"
 
 
-class MultimodalVisionNeuronConfig(NeuronConfig):
-    """
-    for multimodal vision config on Neuron
-    """
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-
-
 class MoENeuronConfig(NeuronConfig):
     """
     Base class for mixture of experts (MoE) config on Neuron.

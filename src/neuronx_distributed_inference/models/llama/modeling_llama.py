@@ -85,13 +85,6 @@ def get_rmsnorm_cls():
     return CustomRMSNorm if parallel_state.model_parallel_is_initialized() else LlamaRMSNorm
 
 
-def preshard_hook_fn(module: torch.nn.Module, model_state_dict: dict, prefix: str) -> bool:
-    if isinstance(module, (BaseGroupQueryAttention,)):
-        return module.preshard_hook(model_state_dict, prefix)
-
-    return False
-
-
 def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: InferenceConfig):
     """
     This function concats the qkv weights to a Wqkv weight for fusedqkv, and deletes the qkv weights.

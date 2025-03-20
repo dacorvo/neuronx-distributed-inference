@@ -19,19 +19,13 @@ from typing import List, Optional, Tuple, Union
 import torch
 
 from neuronx_distributed_inference.models.decoder import NeuronBaseForCausalLM, NeuronDecoderModel
-from neuronx_distributed_inference.modules.attention.gqa import GQA
 from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 
 # Try except for the compatibility with older compiler version
-try:
-    from neuronxcc.nki._private_kernels.attention import attention_isa_kernel
-except ImportError:
-    from neuronxcc.nki.kernels.attention import attention_isa_kernel
 
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, ParallelEmbedding
 from torch import nn
-from torch_neuronx.xla_impl.ops import nki_jit
 from transformers import MixtralForCausalLM
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.mixtral.modeling_mixtral import MixtralRMSNorm
@@ -41,11 +35,8 @@ from neuronx_distributed_inference.modules.attention.attention_base import Neuro
 from neuronx_distributed_inference.modules.attention.utils import RotaryEmbedding
 from neuronx_distributed_inference.modules.moe import initialize_moe_module
 
-_flash_fwd_call = nki_jit()(attention_isa_kernel)
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
-
-GQA_SHARDING_STRATEGY = GQA.REPLICATE_TO_TP_DEGREE
 
 
 def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config):
