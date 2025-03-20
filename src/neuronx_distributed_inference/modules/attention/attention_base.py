@@ -82,7 +82,7 @@ class NeuronAttentionBase(nn.Module):
         self.rope_theta = config.rope_theta
         self.padding_side = neuron_config.padding_side
         self.torch_dtype = neuron_config.torch_dtype
-        self.qk_layernorm = config.neuron_config.qk_layernorm
+        self.qk_layernorm = neuron_config.qk_layernorm
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = config.num_cores_per_group
         self.bias = getattr(config, "attention_bias", False)
