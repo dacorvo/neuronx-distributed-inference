@@ -474,27 +474,27 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         return ModelWrapper
 
     def enable_context_encoding(self, **model_init_kwargs):
-        new_config = copy.deepcopy(self.config)
-        new_config.neuron_config.batch_size = self.neuron_config.ctx_batch_size
-        new_config.neuron_config.n_active_tokens = self.neuron_config.max_context_length
-        new_config.neuron_config.bucket_n_active_tokens = True
+        new_neuron_config = copy.deepcopy(self.neuron_config)
+        new_neuron_config.batch_size = self.neuron_config.ctx_batch_size
+        new_neuron_config.n_active_tokens = self.neuron_config.max_context_length
+        new_neuron_config.bucket_n_active_tokens = True
 
-        if not new_config.neuron_config.enable_bucketing:
-            new_config.neuron_config.buckets = generate_buckets(
-                new_config.neuron_config.max_context_length,
-                new_config.neuron_config.max_context_length,
+        if not new_neuron_config.enable_bucketing:
+            new_neuron_config.buckets = generate_buckets(
+                new_neuron_config.max_context_length,
+                new_neuron_config.max_context_length,
             )
         else:
-            if new_config.neuron_config.context_encoding_buckets is not None:
-                new_config.neuron_config.buckets = new_config.neuron_config.context_encoding_buckets
+            if new_neuron_config.context_encoding_buckets is not None:
+                new_neuron_config.buckets = new_neuron_config.context_encoding_buckets
             else:
-                new_config.neuron_config.buckets = generate_buckets(
-                    128, new_config.neuron_config.max_context_length
+                new_neuron_config.buckets = generate_buckets(
+                    128, new_neuron_config.max_context_length
                 )
 
         self.context_encoding_model = self.model_wrapper(
-            config=new_config,
-            neuron_config=new_config.neuron_config,
+            config=self.config,
+            neuron_config=new_neuron_config,
             model_cls=self._model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
@@ -503,30 +503,30 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         self.models.append(self.context_encoding_model)
 
     def enable_token_generation(self, enable_wlt_optimization: bool = True, **model_init_kwargs):
-        new_config = copy.deepcopy(self.config)
-        new_config.neuron_config.batch_size = self.neuron_config.tkg_batch_size
-        new_config.neuron_config.n_active_tokens = 1
-        new_config.neuron_config.bucket_n_active_tokens = False
-        new_config.neuron_config.sequence_parallel_enabled = False
+        new_neuron_config = copy.deepcopy(self.neuron_config)
+        new_neuron_config.batch_size = self.neuron_config.tkg_batch_size
+        new_neuron_config.n_active_tokens = 1
+        new_neuron_config.bucket_n_active_tokens = False
+        new_neuron_config.sequence_parallel_enabled = False
 
-        if not new_config.neuron_config.enable_bucketing:
-            new_config.neuron_config.buckets = generate_buckets(
+        if not new_neuron_config.enable_bucketing:
+            new_neuron_config.buckets = generate_buckets(
                 self.neuron_config.max_length, self.neuron_config.max_length
             )
         else:
-            if new_config.neuron_config.token_generation_buckets is not None:
-                new_config.neuron_config.buckets = new_config.neuron_config.token_generation_buckets
+            if new_neuron_config.token_generation_buckets is not None:
+                new_neuron_config.buckets = new_neuron_config.token_generation_buckets
             else:
-                new_config.neuron_config.buckets = generate_buckets(
+                new_neuron_config.buckets = generate_buckets(
                     128, self.neuron_config.max_length
                 )
 
         # shouldn't be used in token gen models
-        new_config.neuron_config.sequence_parallel_enabled = False
+        new_neuron_config.sequence_parallel_enabled = False
 
         self.token_generation_model = self.model_wrapper(
-            config=new_config,
-            neuron_config=new_config.neuron_config,
+            config=self.config,
+            neuron_config=new_neuron_config,
             model_cls=self._model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
@@ -538,28 +538,28 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
         self.models.append(self.token_generation_model)
 
     def enable_speculation(self):
-        new_config = copy.deepcopy(self.config)
-        new_config.neuron_config.batch_size = self.neuron_config.spec_batch_size
-        new_config.neuron_config.n_active_tokens = self.neuron_config.speculation_length
-        new_config.neuron_config.bucket_n_active_tokens = False
+        new_neuron_config = copy.deepcopy(self.neuron_config)
+        new_neuron_config.batch_size = self.neuron_config.spec_batch_size
+        new_neuron_config.n_active_tokens = self.neuron_config.speculation_length
+        new_neuron_config.bucket_n_active_tokens = False
 
-        new_config.neuron_config.sequence_parallel_enabled = False
+        new_neuron_config.sequence_parallel_enabled = False
 
-        if not new_config.neuron_config.enable_bucketing:
-            new_config.neuron_config.buckets = generate_buckets(
+        if not new_neuron_config.enable_bucketing:
+            new_neuron_config.buckets = generate_buckets(
                 self.neuron_config.max_length, self.neuron_config.max_length
             )
         else:
-            if new_config.neuron_config.token_generation_buckets is not None:
-                new_config.neuron_config.buckets = new_config.neuron_config.token_generation_buckets
+            if new_neuron_config.token_generation_buckets is not None:
+                new_neuron_config.buckets = new_neuron_config.token_generation_buckets
             else:
-                new_config.neuron_config.buckets = generate_buckets(
+                new_neuron_config.buckets = generate_buckets(
                     128, self.neuron_config.max_length
                 )
 
         self.speculation_model = self.model_wrapper(
-            config=new_config,
-            neuron_config=new_config.neuron_config,
+            config=self.config,
+            neuron_config=new_neuron_config,
             model_cls=self._model_cls,
             tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization
