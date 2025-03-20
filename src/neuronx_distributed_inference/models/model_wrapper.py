@@ -1,6 +1,5 @@
 import logging
 import os
-from functools import partial
 
 import torch
 import torch.nn.functional as F
@@ -11,7 +10,6 @@ from neuronx_distributed.quantization.quantization_config import (
     get_default_per_channel_custom_qconfig_dict,
 )
 from neuronx_distributed.quantization.quantize import convert
-from neuronx_distributed.trace import parallel_model_load, parallel_model_trace
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
 
@@ -140,28 +138,6 @@ class ModelWrapper(torch.nn.Module):
 
     def is_neuron(self):
         return self.model is not None and isinstance(self.model, torch.jit.ScriptModule)
-
-    def compile(self, checkpoint_loader, serialize_base_path):
-        inputs = self.input_generator()
-
-        # cannot pass partial func with multiprocess using model directly
-        parallel_model_trace(
-            partial(get_trace_callable, self.model_cls, self.neuron_config),
-            inputs,
-            tp_degree=self.neuron_config.tp_degree,
-            compiler_workdir=self.compiler_workdir,
-            compiler_args=self.compiler_args,
-            inline_weights_to_neff=False,
-            spmd_mode=True,
-            checkpoint_loader_callable=checkpoint_loader,
-            bucket_config=self.bucket_config,
-            force_custom_init_on_device=True,
-            serialization_path=os.path.join(serialize_base_path, self.tag),
-        )
-        print(f"Successfully traced the {self.tag}!")
-
-    def load(self, serialize_base_path):
-        self.model = parallel_model_load(os.path.join(serialize_base_path, self.tag))
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
         self.model = self.model_cls(self.config, self.neuron_config)
@@ -431,30 +407,3 @@ class DecoderModelInstance(BaseModelInstance):
         for i in range(len(past_key_values)):
             self.input_output_aliases[past_key_values[i]] = num_output_from_trace + i
         return self.module, self.input_output_aliases
-
-
-def get_trace_callable(model_cls, config: InferenceConfig, bucket_rank=None):
-    if bucket_rank is not None:
-        config.neuron_config.n_positions = config.neuron_config.buckets[bucket_rank]
-    float_model = model_cls(config, config.neuron_config)
-    float_model.eval()
-    if config.neuron_config.torch_dtype != torch.float32:
-        float_model.to(config.neuron_config.torch_dtype)
-
-    if config.neuron_config.quantized is True:
-        quantization_type = QuantizationType(config.neuron_config.quantization_type)
-        if quantization_type == QuantizationType.PER_CHANNEL_SYMMETRIC:
-            q_config = get_default_per_channel_custom_qconfig_dict()
-        elif quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
-            q_config = get_default_custom_qconfig_dict()
-        else:
-            raise RuntimeError(f"{config.neuron_config.quantization_type} is not supported")
-        model = convert(float_model, q_config=q_config, inplace=True, mapping=None)
-    else:
-        model = float_model
-
-    aliases = {}
-    num_output_from_trace = 1
-    for i in range(len(model.kv_mgr.past_key_values)):
-        aliases[model.kv_mgr.past_key_values[i]] = num_output_from_trace + i
-    return model, aliases
