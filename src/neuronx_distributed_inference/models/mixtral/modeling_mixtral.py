@@ -115,11 +115,11 @@ def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config):
     return neuron_state_dict
 
 
-def get_rmsnorm_cls(config):
+def get_rmsnorm_cls(neuron_config):
     # Initialize to the appropriate implementation of RMSNorm
     # If infer on NXD -> CustomRMSNorm
     # If infer on CPU -> HF_RMSNorm (CustomRMSNorm does not work on CPU)
-    return MixtralRMSNorm if config.neuron_config.on_cpu else CustomRMSNorm
+    return MixtralRMSNorm if neuron_config.on_cpu else CustomRMSNorm
 
 
 class MixtralInferenceConfig(InferenceConfig):
@@ -180,11 +180,11 @@ class NeuronMixtralDecoderLayer(nn.Module):
             hidden_act=config.hidden_act,
         )
 
-        self.input_layernorm = get_rmsnorm_cls(config)(
+        self.input_layernorm = get_rmsnorm_cls(neuron_config)(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = get_rmsnorm_cls(config)(
+        self.post_attention_layernorm = get_rmsnorm_cls(neuron_config)(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -259,7 +259,7 @@ class NeuronMixtralModel(NeuronDecoderModel):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = get_rmsnorm_cls(config)(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = get_rmsnorm_cls(neuron_config)(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = ColumnParallelLinear(
             config.hidden_size,
             config.vocab_size,
@@ -294,7 +294,7 @@ class NeuronMixtralForCausalLM(NeuronBaseForCausalLM):
             " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2'"
         )
         # Prevent auto-down casting when running with fp32
-        if self.config.neuron_config.torch_dtype == torch.float32:
+        if self.neuron_config.torch_dtype == torch.float32:
             compiler_args += " --auto-cast=none"
         # Enable vector-offset DGE
         compiler_args += " --internal-enable-dge-levels vector_dynamic_offsets"

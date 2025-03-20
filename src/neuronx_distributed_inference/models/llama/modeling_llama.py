@@ -657,11 +657,11 @@ class NeuronLlamaDecoderLayer(nn.Module):
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.qkv_kernel_enabled = config.neuron_config.qkv_kernel_enabled
-        self.mlp_kernel_enabled = config.neuron_config.mlp_kernel_enabled
-        self.rmsnorm_quantize_kernel_enabled = config.neuron_config.rmsnorm_quantize_kernel_enabled
-        self.mlp_kernel_fuse_residual_add = config.neuron_config.mlp_kernel_fuse_residual_add
-        self.sequence_parallel_enabled = config.neuron_config.sequence_parallel_enabled
+        self.qkv_kernel_enabled = neuron_config.qkv_kernel_enabled
+        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
+        self.rmsnorm_quantize_kernel_enabled = neuron_config.rmsnorm_quantize_kernel_enabled
+        self.mlp_kernel_fuse_residual_add = neuron_config.mlp_kernel_fuse_residual_add
+        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
     def forward(

@@ -95,7 +95,7 @@ class NeuronDecoderModel(nn.Module):
 
     def init_inference_optimization(self):
         if self.neuron_config.on_device_sampling_config is not None:
-            self.sampler = Sampler(self.config.neuron_config)
+            self.sampler = Sampler(self.neuron_config)
         self.kv_mgr = KVCacheManager(self.config, num_kv_head=self.num_key_value_heads)
 
     def _create_context_attn_mask(self, attention_mask, **kwargs):
@@ -165,10 +165,10 @@ class NeuronDecoderModel(nn.Module):
         past_key_values = []
         for idx in range(len(kv_cache)):
             k_cache = _slice_kv_cacheline(
-                self.config.neuron_config.padding_side, n_positions, kv_cache[idx][0]
+                self.neuron_config.padding_side, n_positions, kv_cache[idx][0]
             )
             v_cache = _slice_kv_cacheline(
-                self.config.neuron_config.padding_side, n_positions, kv_cache[idx][1]
+                self.neuron_config.padding_side, n_positions, kv_cache[idx][1]
             )
             past_key_values.append([k_cache, v_cache])
         return past_key_values
