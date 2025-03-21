@@ -221,7 +221,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     draft_model = None
     if neuron_config.speculation_length > 0 and args.draft_model_path is not None:
         # Reset speculation options to defaults for the draft model.
-        draft_neuron_config = copy.deepcopy(config.neuron_config)
+        draft_neuron_config = copy.deepcopy(neuron_config)
         draft_neuron_config.speculation_length = 0
         draft_neuron_config.trace_tokengen_model = True
 
@@ -231,13 +231,13 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         draft_config = model_cls.get_config_cls()(
             draft_neuron_config, load_config=load_pretrained_config(args.draft_model_path)
         )
-        draft_model = model_cls(args.draft_model_path, draft_config)
+        draft_model = model_cls(args.draft_model_path, draft_config, draft_neuron_config)
 
-    model = model_cls(args.model_path, config)
+    model = model_cls(args.model_path, config, neuron_config)
 
     # Quantize model.
     if neuron_config.quantized:
-        model_cls.save_quantized_state_dict(args.model_path, config)
+        model_cls.save_quantized_state_dict(args.model_path, config, neuron_config)
 
     # Compile and save model.
     compiling_start_time = time.monotonic()

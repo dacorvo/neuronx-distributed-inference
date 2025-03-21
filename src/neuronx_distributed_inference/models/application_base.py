@@ -60,7 +60,7 @@ class NeuronApplicationBase(torch.nn.Module):
 
         self.validate_config(config)
         self.config = config
-        self.neuron_config = config.neuron_config
+        self.neuron_config = neuron_config
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self.model_path = model_path
         self.models: List[ModelWrapper] = []
@@ -86,7 +86,7 @@ class NeuronApplicationBase(torch.nn.Module):
                 debug=debug,
                 num_cores_per_group=self.config.num_cores_per_group,
                 logical_neuron_cores=self.neuron_config.logical_neuron_cores,
-                weights_to_skip_layout_optimization=self.config.neuron_config.weights_to_skip_layout_optimization,
+                weights_to_skip_layout_optimization=self.neuron_config.weights_to_skip_layout_optimization,
             )
             for model in self.models:
                 self._builder.add(
@@ -203,8 +203,8 @@ class NeuronApplicationBase(torch.nn.Module):
     def checkpoint_loader_fn(self, mmap: bool = False):
         """This function loads the model's state dictionary and weights from the hf model"""
 
-        if self.config.neuron_config.quantized:
-            return self.get_quantized_state_dict(self.config)
+        if self.neuron_config.quantized:
+            return self.get_quantized_state_dict(self.config, self.neuron_config)
         else:
             model_sd = self.get_state_dict(self.model_path, self.config, self.neuron_config)
             if self.neuron_config.torch_dtype != torch.float32:
@@ -246,12 +246,12 @@ class NeuronApplicationBase(torch.nn.Module):
         return model_sd
 
     @classmethod
-    def get_quantized_state_dict(cls, config: InferenceConfig, mmap: bool = False) -> dict:
+    def get_quantized_state_dict(cls, config: InferenceConfig, neuron_config: NeuronConfig, mmap: bool = False) -> dict:
         """
         This function loads the checkpointed float model state dictionary and weights from the quantized hf model
         This will be removed once we move to safe tensors in NxD
         """
-        existing_checkpoint_path = config.neuron_config.quantized_checkpoints_path
+        existing_checkpoint_path = neuron_config.quantized_checkpoints_path
         if not os.path.exists(existing_checkpoint_path):
             raise FileNotFoundError(
                 f"Quantized checkpoint file not found: {existing_checkpoint_path}"
@@ -277,7 +277,7 @@ class NeuronApplicationBase(torch.nn.Module):
         model_quant_sd = cls.convert_hf_to_neuron_state_dict(model_quant_sd, config)
 
         # Make sure that the non quantized weights are in bfloat16 and not float32
-        if config.neuron_config.torch_dtype == torch.bfloat16:
+        if neuron_config.torch_dtype == torch.bfloat16:
             for name, param in model_quant_sd.items():
                 # TODO: Reduce and clean-up these warnings
                 if param is not None and param.dtype == torch.float32:
@@ -299,37 +299,37 @@ class NeuronApplicationBase(torch.nn.Module):
         return state_dict
 
     @classmethod
-    def save_quantized_state_dict(cls, model_path: str, config: InferenceConfig):
+    def save_quantized_state_dict(cls, model_path: str, config: InferenceConfig, neuron_config: NeuronConfig):
         """
-        Quantizes the model and saves the quantized checkpoint to `config.neuron_config.quantized_checkpoints_path`.
+        Quantizes the model and saves the quantized checkpoint to `neuron_config.quantized_checkpoints_path`.
         """
         model_path = normalize_path(model_path)
-        quantized_state_dict = cls.generate_quantized_state_dict(model_path, config)
+        quantized_state_dict = cls.generate_quantized_state_dict(model_path, neuron_config)
 
         # Prune None values in the quantized_state_dict. torch.save crashes if None values exist.
         quantized_state_dict = prune_state_dict(quantized_state_dict)
-        if os.path.isdir(config.neuron_config.quantized_checkpoints_path):
+        if os.path.isdir(neuron_config.quantized_checkpoints_path):
             logging.info(
                 "Saving quantized state dict as safetensors to: %s",
-                config.neuron_config.quantized_checkpoints_path,
+                neuron_config.quantized_checkpoints_path,
             )
             save_state_dict_safetensors(
                 state_dict=quantized_state_dict,
-                state_dict_dir=config.neuron_config.quantized_checkpoints_path,
+                state_dict_dir=neuron_config.quantized_checkpoints_path,
             )
         else:
             logging.info(
                 "Saving quantized state dict as torch pt file to: %s",
-                config.neuron_config.quantized_checkpoints_path,
+                neuron_config.quantized_checkpoints_path,
             )
-            torch.save(quantized_state_dict, config.neuron_config.quantized_checkpoints_path)
+            torch.save(quantized_state_dict, neuron_config.quantized_checkpoints_path)
 
     @classmethod
-    def generate_quantized_state_dict(cls, model_path: str, config: InferenceConfig) -> dict:
+    def generate_quantized_state_dict(cls, model_path: str, neuron_config: NeuronConfig) -> dict:
         """Generates the quantized state dict for this model."""
         hf_model = cls.load_hf_model(model_path)
-        quantization_type = QuantizationType(config.neuron_config.quantization_type)
-        quantized_dtype = QuantizedDtype.get_dtype(config.neuron_config.quantization_dtype)
+        quantization_type = QuantizationType(neuron_config.quantization_type)
+        quantized_dtype = QuantizedDtype.get_dtype(neuron_config.quantization_dtype)
         if quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
             hf_model_quant = quantize_pytorch_model_per_tensor_symmetric(
                 float_model=hf_model, inplace=True, dtype=quantized_dtype
@@ -339,7 +339,7 @@ class NeuronApplicationBase(torch.nn.Module):
                 float_model=hf_model, inplace=True, dtype=quantized_dtype
             )
         else:
-            raise RuntimeError(f"{config.neuron_config.quantization_type} not supported")
+            raise RuntimeError(f"{neuron_config.quantization_type} not supported")
 
         return cls.prepare_quantized_state_dict(hf_model_quant)
 
