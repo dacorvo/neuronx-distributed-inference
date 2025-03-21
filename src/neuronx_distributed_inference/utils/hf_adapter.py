@@ -42,14 +42,8 @@ def load_pretrained_config(
             config: PretrainedConfig = hf_config
         config_dict = config.to_dict()
 
-        # Set torch_dtype in NeuronConfig.
         if "torch_dtype" in config_dict:
-            if self.neuron_config is not None and not self.neuron_config.overrides_torch_dtype:
-                # Update neuron_config's torch_dtype if not overriden by the user.
-                self.neuron_config.torch_dtype = config_dict["torch_dtype"]
-                if isinstance(self.neuron_config.torch_dtype, str):
-                    self.neuron_config.torch_dtype = to_torch_dtype(self.neuron_config.torch_dtype)
-            del config_dict["torch_dtype"]
+            del config_dict["torch_dtype"] # FIXME: this makes checkpoint sharding fail if this is set to a string
 
         # Convert nested configs to namespaces.
         for k, v in config_dict.items():
