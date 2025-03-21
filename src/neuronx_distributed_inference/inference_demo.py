@@ -202,20 +202,26 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     # Initialize configs.
     print("Loading configs...")
 
-    # Skip values not specified in the args to avoid setting values to None in the config.
-    config_kwargs = copy.deepcopy(vars(args))
-    config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
-    if args.on_device_sampling:
-        config_kwargs["on_device_sampling_config"] = OnDeviceSamplingConfig(**config_kwargs)
+    if args.skip_compile:
+        # Reload configuration
+        config = model_cls.get_config_cls().load(args.compiled_model_path)
+        neuron_config_kwargs = config.neuron_config
+        neuron_config = model_cls.get_neuron_config_cls()(**neuron_config_kwargs)
+    else:
+        # Skip values not specified in the args to avoid setting values to None in the config.
+        config_kwargs = copy.deepcopy(vars(args))
+        config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
+        if args.on_device_sampling:
+            config_kwargs["on_device_sampling_config"] = OnDeviceSamplingConfig(**config_kwargs)
 
-    if (args.quantized and args.quantization_dtype == "f8e4m3") or args.kv_cache_quant:
-        os.environ["XLA_HANDLE_SPECIAL_SCALAR"] = "1"
+        if (args.quantized and args.quantization_dtype == "f8e4m3") or args.kv_cache_quant:
+            os.environ["XLA_HANDLE_SPECIAL_SCALAR"] = "1"
 
-    neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
+        neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
-    config = model_cls.get_config_cls()(
-        neuron_config, load_config=load_pretrained_config(args.model_path)
-    )
+        config = model_cls.get_config_cls()(
+            neuron_config, load_config=load_pretrained_config(args.model_path)
+        )
 
     # Initialize draft model.
     draft_model = None

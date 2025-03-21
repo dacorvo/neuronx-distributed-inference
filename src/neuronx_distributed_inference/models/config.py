@@ -326,12 +326,6 @@ class InferenceConfig:
     def from_json_string(cls, json_string: str, **kwargs) -> "InferenceConfig":
         merged_kwargs = json.loads(json_string)
         merged_kwargs.update(kwargs)
-
-        # Initialize NeuronConfig from dict.
-        if "neuron_config" in merged_kwargs and isinstance(merged_kwargs["neuron_config"], dict):
-            merged_kwargs["neuron_config"] = cls.get_neuron_config_cls()(
-                **merged_kwargs["neuron_config"]
-            )
         return cls(**merged_kwargs)
 
 
