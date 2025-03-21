@@ -172,7 +172,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
         self.self_attn = NeuronMixtralAttention(config, neuron_config)
 
         self.mlp = initialize_moe_module(
-            config=config,
+            neuron_config=neuron_config,
             num_experts=config.num_local_experts,
             top_k=config.num_experts_per_tok,
             hidden_size=config.hidden_size,
