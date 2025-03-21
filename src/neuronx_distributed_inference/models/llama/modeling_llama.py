@@ -106,13 +106,6 @@ def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: InferenceConfig):
 
 
 class LlamaInferenceConfig(InferenceConfig):
-    def add_derived_config(self):
-        self.num_cores_per_group = 1
-        if self.neuron_config.flash_decoding_enabled:
-            num_attn_heads, num_kv_heads = self.num_attention_heads, self.num_key_value_heads
-            self.num_cores_per_group = calculate_num_cores_per_group(
-                num_attn_heads, num_kv_heads, self.neuron_config.tp_degree
-            )
 
     def get_required_attributes(self) -> List[str]:
         return [

@@ -84,7 +84,7 @@ class NeuronAttentionBase(nn.Module):
         self.torch_dtype = neuron_config.torch_dtype
         self.qk_layernorm = neuron_config.qk_layernorm
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
-        self.num_cores_per_group = config.num_cores_per_group
+        self.num_cores_per_group = neuron_config.num_cores_per_group
         self.bias = getattr(config, "attention_bias", False)
         self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
         self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled

@@ -68,7 +68,7 @@ class NeuronDecoderModel(nn.Module):
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
-        self.num_cores_per_group = config.num_cores_per_group
+        self.num_cores_per_group = neuron_config.num_cores_per_group
         if neuron_config.on_device_sampling_config is not None:
             self.sampler = Sampler(neuron_config)
         self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)

@@ -171,6 +171,7 @@ class NeuronConfig:
 
         # Flash decoding
         self.flash_decoding_enabled = kwargs.pop("flash_decoding_enabled", False)
+        self.num_cores_per_group = 1
 
         # KV Cache tiling optimizations
         #   Tiling the sequence dimension of the KV cache enables specific
@@ -246,8 +247,6 @@ class InferenceConfig:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        self.add_derived_config()
-
         self.validate_config()
 
     def __setattr__(self, key, value):
@@ -259,13 +258,6 @@ class InferenceConfig:
         if key != "attribute_map" and key in super().__getattribute__("attribute_map"):
             key = super().__getattribute__("attribute_map")[key]
         return super().__getattribute__(key)
-
-    def add_derived_config(self):
-        """
-        Override this in custom model InferenceConfig for flash decoding. See LlamaInferenceConfig
-        """
-        self.num_cores_per_group = 1
-        pass
 
     def load_config(self):
         """

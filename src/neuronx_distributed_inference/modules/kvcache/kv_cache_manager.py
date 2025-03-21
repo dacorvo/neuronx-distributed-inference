@@ -52,7 +52,7 @@ class KVCacheManager(nn.Module):
         self.padding_side = neuron_config.padding_side
         self.is_continuous_batching = neuron_config.is_continuous_batching
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
-        self.num_cores_per_group = config.num_cores_per_group
+        self.num_cores_per_group = neuron_config.num_cores_per_group
         self.num_kv_head = kwargs["num_kv_head"]
 
         # NOTE: Tiling the sequence dimension of the KV cache enables specific compiler optimizations like cascaded reductions

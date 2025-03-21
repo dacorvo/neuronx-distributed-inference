@@ -1,12 +1,10 @@
 import logging
 import os
 import warnings
-from functools import partial
 from typing import List
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
-from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.quantization.quantization_config import QuantizationType, QuantizedDtype
 from neuronx_distributed.quantization.quantization_utils import (
     convert_qint8_to_int8_state_dict,
@@ -23,6 +21,7 @@ from neuronx_distributed_inference.modules.checkpoint import (
     prune_state_dict,
     save_state_dict_safetensors,
 )
+from neuronx_distributed_inference.modules.flashdecode.utils import calculate_num_cores_per_group
 
 COMPILED_MODEL_FILE_NAME = "model.pt"
 logger = logging.getLogger("Neuron")
@@ -61,6 +60,12 @@ class NeuronApplicationBase(torch.nn.Module):
         self.validate_config(config)
         self.config = config
         self.neuron_config = neuron_config
+        if neuron_config.flash_decoding_enabled:
+            # FIXME: this should not be part of neuron_config but is used in downstream classes
+            # Could it be deduced from tensor shapes ?
+            self.neuron_config.num_cores_per_group = calculate_num_cores_per_group(
+                config.num_attention_heads, config.num_key_value_heads, neuron_config.tp_degree
+            )
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self.model_path = model_path
         self.models: List[ModelWrapper] = []
@@ -84,7 +89,7 @@ class NeuronApplicationBase(torch.nn.Module):
                 checkpoint_loader=self.checkpoint_loader_fn,
                 compiler_workdir=base_compile_work_dir,
                 debug=debug,
-                num_cores_per_group=self.config.num_cores_per_group,
+                num_cores_per_group=self.neuron_config.num_cores_per_group,
                 logical_neuron_cores=self.neuron_config.logical_neuron_cores,
                 weights_to_skip_layout_optimization=self.neuron_config.weights_to_skip_layout_optimization,
             )
