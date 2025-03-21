@@ -69,7 +69,6 @@ def to_pretrained_config(config: InferenceConfig, neuron_config: NeuronConfig):
     """Convert an InferenceConfig into a PretrainedConfig."""
     config_dict = copy.deepcopy(to_dict(config))
     config_dict["torch_dtype"] = neuron_config.torch_dtype
-    del config_dict["neuron_config"]
 
     # handle nested configs for multi-modal models
     config_dict = _convert_modality_config_to_pretrained_config(config_dict, "text_config")

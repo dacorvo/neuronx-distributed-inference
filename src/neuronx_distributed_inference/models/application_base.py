@@ -54,10 +54,6 @@ class NeuronApplicationBase(torch.nn.Module):
         if config is None:
             config = self.get_config_cls().load(model_path)
 
-        if neuron_config is not None:
-            config.neuron_config = neuron_config
-
-        self.validate_config(config)
         self.config = config
         self.neuron_config = neuron_config
         if neuron_config.flash_decoding_enabled:
@@ -109,12 +105,6 @@ class NeuronApplicationBase(torch.nn.Module):
         raise NotImplementedError("forward is not implemented")
 
     @classmethod
-    def validate_config(cls, config: InferenceConfig):
-        """Checks whether the config is valid for this model."""
-        if not hasattr(config, "neuron_config"):
-            raise ValueError("Config must include a NeuronConfig")
-
-    @classmethod
     def get_config_cls(cls) -> InferenceConfig:
         """Gets the config class for this model."""
         raise NotImplementedError("get_config_cls is not implemented")
@@ -132,6 +122,7 @@ class NeuronApplicationBase(torch.nn.Module):
 
         """Compiles this model and saves it to the given path."""
         self.config.save(compiled_model_path)
+        self.neuron_config.save(compiled_model_path)
 
         traced_model = self.get_builder(debug).trace(initialize_model_weights=False)
         torch.jit.save(traced_model, compiled_model_path + COMPILED_MODEL_FILE_NAME)

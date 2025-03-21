@@ -205,8 +205,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     if args.skip_compile:
         # Reload configuration
         config = model_cls.get_config_cls().load(args.compiled_model_path)
-        neuron_config_kwargs = config.neuron_config
-        neuron_config = model_cls.get_neuron_config_cls()(**neuron_config_kwargs)
+        neuron_config = model_cls.get_neuron_config_cls().load(args.compiled_model_path)
     else:
         # Skip values not specified in the args to avoid setting values to None in the config.
         config_kwargs = copy.deepcopy(vars(args))
@@ -219,9 +218,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
 
         neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
-        config = model_cls.get_config_cls()(
-            neuron_config, load_config=load_pretrained_config(args.model_path)
-        )
+        config = model_cls.get_config_cls()(load_config=load_pretrained_config(args.model_path))
 
     # Initialize draft model.
     draft_model = None
@@ -234,9 +231,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         if args.draft_model_tp_degree is not None:
             draft_neuron_config.tp_degree = args.draft_model_tp_degree
 
-        draft_config = model_cls.get_config_cls()(
-            draft_neuron_config, load_config=load_pretrained_config(args.draft_model_path)
-        )
+        draft_config = model_cls.get_config_cls()(load_config=load_pretrained_config(args.draft_model_path))
         draft_model = model_cls(args.draft_model_path, draft_config, draft_neuron_config)
 
     model = model_cls(args.model_path, config, neuron_config)

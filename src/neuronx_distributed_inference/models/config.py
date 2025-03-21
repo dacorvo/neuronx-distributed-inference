@@ -6,7 +6,8 @@ from typing import Dict, List, Type, Union
 import torch
 from neuronx_distributed.quantization.quantization_config import QuantizedDtype
 
-CONFIG_FILE = "neuron_config.json"
+INFERENCE_CONFIG_FILE = "config.json"
+NEURON_CONFIG_FILE = "neuron_config.json"
 
 
 def to_torch_dtype(dtype_str: str) -> torch.dtype:
@@ -213,6 +214,54 @@ class NeuronConfig:
         if self.quantized_mlp_kernel_enabled:
             assert self.quantization_dtype == "f8e4m3"
 
+    def save(self, model_path: Union[str, os.PathLike]):
+        """
+        Saves the config to a JSON file in the given model directory.
+        """
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
+        config_file = os.path.join(model_path, NEURON_CONFIG_FILE)
+        self.to_json_file(config_file)
+
+    def to_json_file(self, json_file: Union[str, os.PathLike]):
+        with open(json_file, "w", encoding="utf-8") as writer:
+            config_json = self.to_json_string()
+            logging.debug(f"Saving config: {config_json}")
+            writer.write(config_json + "\n")
+
+    def to_json_string(self) -> str:
+        config_dict = to_dict(self)
+        return json.dumps(config_dict, indent=2, sort_keys=True)
+
+    @classmethod
+    def load(cls, model_path: Union[str, os.PathLike], **kwargs) -> "NeuronConfig":
+        """
+        Loads the config from the given model directory.
+
+        The given kwargs override any properties of the same name from the JSON file.
+        """
+        config_file = os.path.join(model_path, NEURON_CONFIG_FILE)
+        return cls.from_json_file(config_file, **kwargs)
+
+    @classmethod
+    def from_json_file(cls, json_file: Union[str, os.PathLike], **kwargs) -> "InferenceConfig":
+        with open(json_file, "r", encoding="utf-8") as reader:
+            config = cls.from_json_string(reader.read(), **kwargs)
+            logging.info(f"Loaded Neuron config: {config.to_json_string()}")
+            return config
+
+    @classmethod
+    def from_json_string(cls, json_string: str, **kwargs) -> "InferenceConfig":
+        merged_kwargs = json.loads(json_string)
+        merged_kwargs.update(kwargs)
+
+        # Initialize NeuronConfig from dict.
+        if "neuron_config" in merged_kwargs and isinstance(merged_kwargs["neuron_config"], dict):
+            merged_kwargs["neuron_config"] = cls.get_neuron_config_cls()(
+                **merged_kwargs["neuron_config"]
+            )
+        return cls(**merged_kwargs)
+
 
 class MoENeuronConfig(NeuronConfig):
     """
@@ -234,10 +283,7 @@ class InferenceConfig:
     # Alias map for attributes.
     attribute_map: Dict[str, str] = {}
 
-    def __init__(
-        self, neuron_config: NeuronConfig, load_config=None, **kwargs
-    ):
-        self.neuron_config = neuron_config
+    def __init__(self, load_config=None, **kwargs):
         if load_config is not None:
             load_config(self)
         else:
@@ -282,7 +328,7 @@ class InferenceConfig:
         """
         if not os.path.exists(model_path):
             os.makedirs(model_path)
-        config_file = os.path.join(model_path, CONFIG_FILE)
+        config_file = os.path.join(model_path, INFERENCE_CONFIG_FILE)
         self.to_json_file(config_file)
 
     def to_json_file(self, json_file: Union[str, os.PathLike]):
@@ -312,7 +358,7 @@ class InferenceConfig:
 
         The given kwargs override any properties of the same name from the JSON file.
         """
-        config_file = os.path.join(model_path, CONFIG_FILE)
+        config_file = os.path.join(model_path, INFERENCE_CONFIG_FILE)
         return cls.from_json_file(config_file, **kwargs)
 
     @classmethod
