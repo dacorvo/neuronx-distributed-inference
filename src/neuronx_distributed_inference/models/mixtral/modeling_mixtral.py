@@ -138,10 +138,6 @@ class MixtralInferenceConfig(InferenceConfig):
             "rms_norm_eps",
         ]
 
-    @classmethod
-    def get_neuron_config_cls(cls):
-        return MoENeuronConfig
-
 
 class NeuronMixtralAttention(NeuronAttentionBase):
     def __init__(self, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig):
@@ -282,6 +278,10 @@ class NeuronMixtralForCausalLM(NeuronBaseForCausalLM):
     @classmethod
     def get_config_cls(cls):
         return MixtralInferenceConfig
+
+    @classmethod
+    def get_neuron_config_cls(cls):
+        return MoENeuronConfig
 
     @staticmethod
     def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig) -> dict:

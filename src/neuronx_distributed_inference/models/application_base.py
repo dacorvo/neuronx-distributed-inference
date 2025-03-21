@@ -116,8 +116,7 @@ class NeuronApplicationBase(torch.nn.Module):
 
     @classmethod
     def get_neuron_config_cls(cls) -> NeuronConfig:
-        # TODO: improve the config access
-        return cls.get_config_cls().get_neuron_config_cls()
+        raise NotImplementedError("get_neuron_config_cls is not implemented")
 
     def get_compiler_args(self) -> str:
         """Gets the Neuron compiler arguments to use when compiling this model."""

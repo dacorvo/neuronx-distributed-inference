@@ -128,10 +128,6 @@ class LlamaInferenceConfig(InferenceConfig):
             "hidden_act",
         ]
 
-    @classmethod
-    def get_neuron_config_cls(cls) -> Type[NeuronConfig]:
-        return NeuronConfig
-
 
 class NeuronLlamaMLP(nn.Module):
     """
@@ -790,3 +786,7 @@ class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
     @classmethod
     def get_config_cls(cls):
         return LlamaInferenceConfig
+
+    @classmethod
+    def get_neuron_config_cls(cls) -> Type[NeuronConfig]:
+        return NeuronConfig

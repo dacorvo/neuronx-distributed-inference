@@ -342,10 +342,6 @@ class InferenceConfig:
             )
         return cls(**merged_kwargs)
 
-    @classmethod
-    def get_neuron_config_cls(cls) -> Type[NeuronConfig]:
-        return NeuronConfig
-
 
 class OnDeviceSamplingConfig:
     def __init__(self, **kwargs):
