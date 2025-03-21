@@ -72,7 +72,6 @@ from neuronx_distributed_inference.modules.attention.utils import (
 )
 from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 from neuronx_distributed_inference.modules.flashdecode.utils import calculate_num_cores_per_group
-from neuronx_distributed_inference.utils.distributed import get_tp_group
 
 
 logger = logging.getLogger("Neuron")
@@ -141,7 +140,6 @@ class NeuronLlamaMLP(nn.Module):
 
     def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
         super().__init__()
-        self.tp_group = get_tp_group(config)
         self.tp_degree = neuron_config.tp_degree
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
@@ -178,7 +176,6 @@ class NeuronLlamaMLP(nn.Module):
                     dtype=neuron_config.torch_dtype,
                     quantized_dtype=quantized_dtype,
                     quantization_type=quantization_type,
-                    tensor_model_parallel_group=get_tp_group(config),
                 )
                 self.up_proj = QuantizedColumnParallel(
                     input_size=self.hidden_size,
@@ -189,7 +186,6 @@ class NeuronLlamaMLP(nn.Module):
                     dtype=neuron_config.torch_dtype,
                     quantized_dtype=quantized_dtype,
                     quantization_type=quantization_type,
-                    tensor_model_parallel_group=get_tp_group(config),
                 )
                 self.down_proj = QuantizedRowParallel(
                     input_size=self.intermediate_size,
@@ -201,7 +197,6 @@ class NeuronLlamaMLP(nn.Module):
                     quantized_dtype=quantized_dtype,
                     sequence_parallel_enabled=False,
                     quantization_per_channel_axis=0,
-                    tensor_model_parallel_group=get_tp_group(config),
                 )
 
             else:
@@ -214,7 +209,6 @@ class NeuronLlamaMLP(nn.Module):
                     pad=True,
                     sequence_parallel_enabled=False,
                     sequence_dimension=None,
-                    tensor_model_parallel_group=get_tp_group(config),
                 )
                 self.up_proj = ColumnParallelLinear(
                     self.hidden_size,
@@ -225,7 +219,6 @@ class NeuronLlamaMLP(nn.Module):
                     pad=True,
                     sequence_parallel_enabled=False,
                     sequence_dimension=None,
-                    tensor_model_parallel_group=get_tp_group(config),
                 )
                 self.down_proj = RowParallelLinear(
                     self.intermediate_size,
@@ -236,7 +229,6 @@ class NeuronLlamaMLP(nn.Module):
                     pad=True,
                     sequence_parallel_enabled=self.sequence_parallel_enabled,
                     sequence_dimension=self.sequence_dimension,
-                    tensor_model_parallel_group=get_tp_group(config),
                     reduce_dtype=neuron_config.rpl_reduce_dtype,
                 )
 
@@ -302,17 +294,14 @@ class NeuronLlamaMLP(nn.Module):
                 )
                 x = gather_from_sequence_parallel_region(
                     quant_rmsnorm_out,
-                    self.sequence_dimension,
-                    process_group=self.tp_group,
+                    self.sequence_dimension
                 )
 
             else:
                 logger.debug(
                     "Running Quantized MLP kernel with external (native compiler) sequence-parallel RMSnorm!"
                 )
-                x = gather_from_sequence_parallel_region(
-                    x, self.sequence_dimension, process_group=self.tp_group
-                )
+                x = gather_from_sequence_parallel_region(x, self.sequence_dimension)
 
         # Build output tensor
         output_tensor_seqlen = x.shape[1]
@@ -385,9 +374,7 @@ class NeuronLlamaMLP(nn.Module):
 
         # All-reduce or reduce-scatter, depending on whether SP is enabled
         if self.sequence_parallel_enabled:
-            output_tensor = reduce_scatter_to_sequence_parallel_region(
-                output_tensor, self.sequence_dimension, process_group=self.tp_group
-            )
+            output_tensor = reduce_scatter_to_sequence_parallel_region(output_tensor, self.sequence_dimension)
         else:
             output_tensor = reduce_from_tensor_model_parallel_region(output_tensor)
 
@@ -411,9 +398,7 @@ class NeuronLlamaMLP(nn.Module):
             _mlp_fwd_call = nki_jit()(mlp_isa_kernel)
 
         if self.sequence_parallel_enabled:
-            x = gather_from_sequence_parallel_region(
-                x, self.sequence_dimension, process_group=self.tp_group
-            )
+            x = gather_from_sequence_parallel_region(x, self.sequence_dimension)
 
         # Build output tensor
         output_tensor_seqlen = x.shape[1]
@@ -476,13 +461,9 @@ class NeuronLlamaMLP(nn.Module):
 
         # All-reduce or reduce-scatter, depending on whether SP is enabled
         if self.sequence_parallel_enabled:
-            output_tensor = reduce_scatter_to_sequence_parallel_region(
-                output_tensor, self.sequence_dimension, process_group=self.tp_group
-            )
+            output_tensor = reduce_scatter_to_sequence_parallel_region(output_tensor, self.sequence_dimension)
         else:
-            output_tensor = reduce_from_tensor_model_parallel_region(
-                output_tensor, process_group=self.tp_group
-            )
+            output_tensor = reduce_from_tensor_model_parallel_region(output_tensor)
 
         logger.debug(f"MLP output shape {output_tensor.shape}")
         return (output_tensor, residual)
@@ -492,9 +473,7 @@ class NeuronLlamaMLP(nn.Module):
         # all-gather is done here instead of CPL layers to
         # avoid 2 all-gathers from up and gate projections
         if self.sequence_parallel_enabled:
-            x = gather_from_sequence_parallel_region(
-                x, self.sequence_dimension, process_group=self.tp_group
-            )
+            x = gather_from_sequence_parallel_region(x, self.sequence_dimension)
 
         gate_proj_output = self.gate_proj(x)
         up_proj_output = self.up_proj(x)
@@ -533,9 +512,8 @@ class NeuronLlamaAttention(NeuronAttentionBase):
 
     def __init__(self,
                  config: InferenceConfig,
-                 neuron_config: NeuronConfig,
-                 tensor_model_parallel_group=None):
-        super().__init__(config, neuron_config, tensor_model_parallel_group=tensor_model_parallel_group)
+                 neuron_config: NeuronConfig):
+        super().__init__(config, neuron_config)
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
             self.rotary_emb = RotaryEmbedding(
@@ -642,9 +620,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
     def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = NeuronLlamaAttention(
-            config, neuron_config, tensor_model_parallel_group=get_tp_group(config)
-        )
+        self.self_attn = NeuronLlamaAttention(config, neuron_config)
         self.mlp = NeuronLlamaMLP(config, neuron_config)
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
@@ -732,7 +708,6 @@ class NeuronLlamaModel(NeuronDecoderModel):
                 shard_across_embedding=not neuron_config.vocab_parallel,
                 sequence_parallel_enabled=False,
                 pad=True,
-                tensor_model_parallel_group=get_tp_group(config),
                 use_spmd_rank=neuron_config.vocab_parallel,
             )
 
@@ -742,7 +717,6 @@ class NeuronLlamaModel(NeuronDecoderModel):
                 gather_output=neuron_config.on_device_sampling_config is None,
                 bias=False,
                 pad=True,
-                tensor_model_parallel_group=get_tp_group(self.config),
             )
         else:
             self.embed_tokens = nn.Embedding(

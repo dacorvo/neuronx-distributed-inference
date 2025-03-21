@@ -17,12 +17,3 @@ def get_init_rank() -> int:
         if var in os.environ and os.environ[var] != "":
             return int(os.environ[var])
     return -1
-
-
-def get_tp_group(config):
-    """Get TP process group. Handle override."""
-    if not hasattr(config.neuron_config, "use_draft_group"):
-        return None
-    if config.neuron_config.use_draft_group:
-        return parallel_state.get_speculative_draft_group(as_list=False)
-    return parallel_state.get_tensor_model_parallel_group(as_list=False)

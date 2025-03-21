@@ -42,7 +42,6 @@ from neuronx_distributed_inference.modules.kvcache.kv_cache_manager import (
     KVCacheManager,
     _slice_kv_cacheline,
 )
-from neuronx_distributed_inference.utils.distributed import get_tp_group
 from neuronx_distributed_inference.utils.random import set_random_seed
 
 
@@ -338,7 +337,6 @@ class NeuronDecoderModel(nn.Module):
             logits = _gather_along_dim(
                 logits,
                 partition_dim=2,
-                process_group=get_tp_group(self.config),
             )
             outputs += [logits]
         outputs += updated_kv_cache
@@ -400,7 +398,6 @@ class NeuronDecoderModel(nn.Module):
                 inputs_embeds,
                 self.sequence_dimension,
                 xm.REDUCE_MAX,
-                process_group=get_tp_group(self.config),
             )
         else:
             hidden_states = inputs_embeds
@@ -430,7 +427,7 @@ class NeuronDecoderModel(nn.Module):
 
         if self.sequence_parallel_enabled:
             hidden_states = gather_from_sequence_parallel_region(
-                hidden_states, self.sequence_dimension, process_group=get_tp_group(self.config)
+                hidden_states, self.sequence_dimension,
             )
 
         return (hidden_states, next_decoder_cache)
