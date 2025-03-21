@@ -71,10 +71,10 @@ def _convert_modality_config_to_pretrained_config(config_dict: Dict, modality: s
     return config_dict
 
 
-def to_pretrained_config(config: InferenceConfig):
+def to_pretrained_config(config: InferenceConfig, neuron_config: NeuronConfig):
     """Convert an InferenceConfig into a PretrainedConfig."""
     config_dict = copy.deepcopy(to_dict(config))
-    config_dict["torch_dtype"] = config.neuron_config.torch_dtype
+    config_dict["torch_dtype"] = neuron_config.torch_dtype
     del config_dict["neuron_config"]
 
     # handle nested configs for multi-modal models
@@ -86,11 +86,11 @@ def to_pretrained_config(config: InferenceConfig):
 
 class HuggingFaceGenerationAdapter(PreTrainedModel):
     def __init__(self, model: NeuronApplicationBase):
-        hf_config = to_pretrained_config(model.config)
+        hf_config = to_pretrained_config(model.config, model.neuron_config)
         super().__init__(hf_config)
 
         self.neuron_model = model
-        self.neuron_config = model.config.neuron_config
+        self.neuron_config = model.neuron_config
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self.padding_side = self.neuron_config.padding_side
         self.sampler = None
