@@ -206,7 +206,7 @@ class NeuronApplicationBase(torch.nn.Module):
         if self.config.neuron_config.quantized:
             return self.get_quantized_state_dict(self.config)
         else:
-            model_sd = self.get_state_dict(self.model_path, self.config)
+            model_sd = self.get_state_dict(self.model_path, self.config, self.neuron_config)
             if self.neuron_config.torch_dtype != torch.float32:
                 for name, param in model_sd.items():
                     if torch.is_floating_point(param) and param.dtype not in [torch.float8_e4m3fn]:
@@ -223,7 +223,7 @@ class NeuronApplicationBase(torch.nn.Module):
         return model_sd
 
     @classmethod
-    def get_state_dict(cls, model_path: str, config: InferenceConfig) -> dict:
+    def get_state_dict(cls, model_path: str, config: InferenceConfig, neuron_config: NeuronConfig) -> dict:
         """Gets the state dict for this model."""
         model_sd = load_state_dict(model_path)
         param_name_list = list(model_sd.keys())
@@ -234,7 +234,7 @@ class NeuronApplicationBase(torch.nn.Module):
                 )
                 model_sd[updated_param_name] = model_sd[param_name]
                 del model_sd[param_name]
-        model_sd = cls.convert_hf_to_neuron_state_dict(model_sd, config)
+        model_sd = cls.convert_hf_to_neuron_state_dict(model_sd, config, neuron_config)
         if getattr(config, "tie_word_embeddings", False):
             cls.update_state_dict_for_tied_weights(model_sd)
 

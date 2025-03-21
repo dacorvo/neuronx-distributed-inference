@@ -39,11 +39,11 @@ from neuronx_distributed_inference.modules.moe import initialize_moe_module
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 
 
-def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config):
+def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config, neuron_config):
     """
     Helper function which returns the model weights from the mixtral model in a state dictionary compatible with the stucture of the neuron MoE model.
     """
-    assert config.neuron_config.glu_mlp is True, "Only GLU MLP is supported for Mixtral Top-K model"
+    assert neuron_config.glu_mlp is True, "Only GLU MLP is supported for Mixtral Top-K model"
 
     for l in range(config.num_hidden_layers):  # noqa: E741
         # Copy router weights
@@ -284,8 +284,8 @@ class NeuronMixtralForCausalLM(NeuronBaseForCausalLM):
         return MixtralInferenceConfig
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralInferenceConfig) -> dict:
-        return convert_mixtral_to_neuron_state_dict(state_dict, config)
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig) -> dict:
+        return convert_mixtral_to_neuron_state_dict(state_dict, config, neuron_config)
 
     def get_compiler_args(self):
         compiler_args = "--enable-saturate-infinity --enable-mixed-precision-accumulation --model-type transformer -O1"

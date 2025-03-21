@@ -761,9 +761,8 @@ class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
         return LlamaForCausalLM.from_pretrained(model_path)
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: InferenceConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: InferenceConfig, neuron_config: NeuronConfig) -> dict:
         """This function should be over-ridden in child classes as needed"""
-        neuron_config = config.neuron_config
         if neuron_config.fused_qkv:
             state_dict = convert_state_dict_to_fused_qkv(state_dict, config)
 
