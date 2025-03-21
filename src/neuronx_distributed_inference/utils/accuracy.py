@@ -113,7 +113,7 @@ def get_generate_outputs(
     is_bfloat16 = (
         model.dtype == torch.bfloat16
         if is_hf
-        else model.config.neuron_config.torch_dtype == torch.bfloat16
+        else model.neuron_config.torch_dtype == torch.bfloat16
     )
     use_ipex = ipex and is_bfloat16
     if use_ipex:
