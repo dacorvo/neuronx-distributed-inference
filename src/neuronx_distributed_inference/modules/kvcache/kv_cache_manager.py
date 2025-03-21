@@ -7,7 +7,7 @@ from neuronx_distributed.quantization import dequantize, quantize
 from torch import Tensor, nn
 from torch_neuronx.xla_impl.ops import ConcatenateOp
 
-from neuronx_distributed_inference.models.config import InferenceConfig
+from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
 from neuronx_distributed_inference.modules.attention.gqa import (  # noqa: E402; noqa: E402; noqa: E402
     determine_sharding_strategy,
     get_shardable_head_counts,
@@ -47,21 +47,21 @@ class KVCacheManager(nn.Module):
     and vends out read and write operations.
     """
 
-    def __init__(self, config: InferenceConfig, **kwargs):
+    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig, **kwargs):
         super().__init__()
-        self.padding_side = config.neuron_config.padding_side
-        self.is_continuous_batching = config.neuron_config.is_continuous_batching
-        self.flash_decoding_enabled = config.neuron_config.flash_decoding_enabled
+        self.padding_side = neuron_config.padding_side
+        self.is_continuous_batching = neuron_config.is_continuous_batching
+        self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = config.num_cores_per_group
         self.num_kv_head = kwargs["num_kv_head"]
 
         # NOTE: Tiling the sequence dimension of the KV cache enables specific compiler optimizations like cascaded reductions
-        self.is_kv_cache_tiled = config.neuron_config.kv_cache_tiling
-        self._init_kv_shape(config)
-        self.quant = config.neuron_config.kv_cache_quant
+        self.is_kv_cache_tiled = neuron_config.kv_cache_tiling
+        self._init_kv_shape(config, neuron_config)
+        self.quant = neuron_config.kv_cache_quant
 
         num_layer = config.num_hidden_layers
-        dtype = config.neuron_config.torch_dtype
+        dtype = neuron_config.torch_dtype
         if self.quant:
             self.quant_dtype = torch.float8_e4m3fn
             self.dequant_dtype = dtype
@@ -74,8 +74,8 @@ class KVCacheManager(nn.Module):
         if self.quant:
             self.past_key_values = self.past_key_values.to(self.quant_dtype)
 
-    def _get_num_kv_heads_per_rank(self, config: InferenceConfig):
-        tp_degree = config.neuron_config.tp_degree
+    def _get_num_kv_heads_per_rank(self, config: InferenceConfig, neuron_config: NeuronConfig):
+        tp_degree = neuron_config.tp_degree
         num_kv_head = self.num_kv_head
         num_atten_head = config.num_attention_heads
 
@@ -96,10 +96,10 @@ class KVCacheManager(nn.Module):
         hidden_dim_per_head = hidden_size // num_atten_head
         return hidden_dim_per_head
 
-    def _init_kv_shape(self, config: InferenceConfig):
-        max_batch_size = config.neuron_config.max_batch_size
-        max_len = config.neuron_config.max_length
-        num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config)
+    def _init_kv_shape(self, config: InferenceConfig, neuron_config: NeuronConfig):
+        max_batch_size = neuron_config.max_batch_size
+        max_len = neuron_config.max_length
+        num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)
         hidden_dim_per_head = self._get_hidden_dim_per_head(config)
 
         if self.flash_decoding_enabled:

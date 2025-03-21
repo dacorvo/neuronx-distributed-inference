@@ -72,7 +72,7 @@ class NeuronDecoderModel(nn.Module):
         self.num_cores_per_group = config.num_cores_per_group
         if neuron_config.on_device_sampling_config is not None:
             self.sampler = Sampler(neuron_config)
-        self.kv_mgr = KVCacheManager(config, num_kv_head=config.num_key_value_heads)
+        self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
 
 
     def initialize_process_group(self, seed: int = 0):
@@ -96,7 +96,7 @@ class NeuronDecoderModel(nn.Module):
     def init_inference_optimization(self):
         if self.neuron_config.on_device_sampling_config is not None:
             self.sampler = Sampler(self.neuron_config)
-        self.kv_mgr = KVCacheManager(self.config, num_kv_head=self.num_key_value_heads)
+        self.kv_mgr = KVCacheManager(self.config, self.neuron_config, num_kv_head=self.num_key_value_heads)
 
     def _create_context_attn_mask(self, attention_mask, **kwargs):
         # Block diagonal causal mask for chunked prefill
