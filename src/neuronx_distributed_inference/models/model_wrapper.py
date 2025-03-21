@@ -25,8 +25,8 @@ TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
 
 
-def get_bucket_model_config_from_tag(tag, config: InferenceConfig):
-    bucket_degree = len(config.neuron_config.buckets)
+def get_bucket_model_config_from_tag(tag, config: InferenceConfig, neuron_config: NeuronConfig):
+    bucket_degree = len(neuron_config.buckets)
     if bucket_degree == 1:
         return None
 
@@ -39,8 +39,8 @@ def get_bucket_model_config_from_tag(tag, config: InferenceConfig):
         return BucketModelConfig(
             bucket_kernel=get_context_encoder_bk,
             bucket_kernel_constant_args=(
-                torch.tensor(config.neuron_config.buckets),
-                config.neuron_config.padding_side,
+                torch.tensor(neuron_config.buckets),
+                neuron_config.padding_side,
                 pad_token,
             ),
             shared_state_buffer=None,
@@ -53,8 +53,8 @@ def get_bucket_model_config_from_tag(tag, config: InferenceConfig):
         return BucketModelConfig(
             bucket_kernel=get_generation_model_bk,
             bucket_kernel_constant_args=(
-                torch.tensor(config.neuron_config.buckets),
-                config.neuron_config.padding_side,
+                torch.tensor(neuron_config.buckets),
+                neuron_config.padding_side,
                 0,
             ),
             shared_state_buffer=None,
@@ -131,7 +131,7 @@ class ModelWrapper(torch.nn.Module):
 
         logging.info(f"neuronx-cc compiler_args are: {self.compiler_args}")
 
-        self.bucket_config = get_bucket_model_config_from_tag(tag, self.config)
+        self.bucket_config = get_bucket_model_config_from_tag(tag, self.config, self.neuron_config)
         self.priority_model_idx = priority_model_idx
         self.model_init_kwargs = model_init_kwargs
         self.async_mode = self.neuron_config.async_mode
