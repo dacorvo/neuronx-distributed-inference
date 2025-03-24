@@ -121,7 +121,7 @@ class NeuronApplicationBase(torch.nn.Module):
         compiled_model_path = normalize_path(compiled_model_path)
 
         """Compiles this model and saves it to the given path."""
-        self.config.save(compiled_model_path)
+        self.config.save_pretrained(compiled_model_path)
         self.neuron_config.save(compiled_model_path)
 
         traced_model = self.get_builder(debug).trace(initialize_model_weights=False)

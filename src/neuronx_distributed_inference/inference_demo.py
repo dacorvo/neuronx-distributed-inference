@@ -9,7 +9,7 @@ from typing import Type
 
 import torch
 from neuronx_distributed.quantization.quantization_config import QuantizationType
-from transformers import AutoTokenizer, GenerationConfig
+from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
 from neuronx_distributed_inference.models.config import (
@@ -204,7 +204,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
 
     if args.skip_compile:
         # Reload configuration
-        config = model_cls.get_config_cls().load(args.compiled_model_path)
+        config = AutoConfig.from_pretrained(args.compiled_model_path)
         neuron_config = model_cls.get_neuron_config_cls().load(args.compiled_model_path)
     else:
         # Skip values not specified in the args to avoid setting values to None in the config.
@@ -218,7 +218,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
 
         neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
-        config = model_cls.get_config_cls()(load_config=load_pretrained_config(args.model_path))
+        config = AutoConfig.from_pretrained(args.model_path)
 
     # Initialize draft model.
     draft_model = None
@@ -231,7 +231,7 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         if args.draft_model_tp_degree is not None:
             draft_neuron_config.tp_degree = args.draft_model_tp_degree
 
-        draft_config = model_cls.get_config_cls()(load_config=load_pretrained_config(args.draft_model_path))
+        draft_config = AutoConfig.from_pretrained(args.draft_model_path)
         draft_model = model_cls(args.draft_model_path, draft_config, draft_neuron_config)
 
     model = model_cls(args.model_path, config, neuron_config)
