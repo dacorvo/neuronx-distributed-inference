@@ -7,16 +7,11 @@ Some of the utitlies functions need to be redo or removed.
 
 import warnings
 from contextlib import nullcontext
-from functools import partial
-from typing import List, Optional, Union
+from typing import Union
 
 import torch
-from torch_neuronx.testing.validation import logit_validation
-from transformers import GenerationConfig, PreTrainedModel, PreTrainedTokenizer
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
-from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
-from neuronx_distributed_inference.modules.generation.sampling import prepare_sampling_params
 from neuronx_distributed_inference.utils.constants import *
 from neuronx_distributed_inference.utils.hf_adapter import HuggingFaceGenerationAdapter
 

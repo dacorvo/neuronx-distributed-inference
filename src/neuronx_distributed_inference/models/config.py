@@ -6,7 +6,6 @@ from typing import Dict, List, Type, Union
 import torch
 from neuronx_distributed.quantization.quantization_config import QuantizedDtype
 
-INFERENCE_CONFIG_FILE = "config.json"
 NEURON_CONFIG_FILE = "neuron_config.json"
 
 
@@ -62,12 +61,8 @@ class NeuronConfig:
             self.torch_dtype = kwargs.pop("torch_dtype")
             if isinstance(self.torch_dtype, str):
                 self.torch_dtype = to_torch_dtype(self.torch_dtype)
-
-            # This flag lets us avoid overriding torch_dtype in HFAdapter's load_pretrained_config.
-            self.overrides_torch_dtype = kwargs.pop("overrides_torch_dtype", True)
         else:
             self.torch_dtype = torch.bfloat16
-            self.overrides_torch_dtype = False
 
         self.rpl_reduce_dtype = kwargs.pop("rpl_reduce_dtype", self.torch_dtype)
 
@@ -84,8 +79,6 @@ class NeuronConfig:
         # Attention
         self.fused_qkv = kwargs.pop("fused_qkv", False)
         self.sequence_parallel_enabled = kwargs.pop("sequence_parallel_enabled", False)
-        # TODO: Remove Llama attn_cls and multiple attention feature.
-        self.attn_cls = kwargs.pop("attn_cls", "NeuronLlamaAttention")
 
         # Continuous batching
         # TODO: Check if we really need different batch size for CTE and TKG, given
@@ -142,11 +135,6 @@ class NeuronConfig:
 
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
-
-        # Paged attention
-        self.is_paged_attention = kwargs.pop("is_paged_attention", False)
-        self.pa_num_blocks = kwargs.pop("pa_num_blocks", self.batch_size)
-        self.pa_block_size = kwargs.pop("pa_block_size", self.seq_len)
 
         # Chunked prefilled
         self.is_chunked_prefill = kwargs.pop("is_chunked_prefill", False)

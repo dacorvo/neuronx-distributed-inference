@@ -93,11 +93,6 @@ class NeuronDecoderModel(nn.Module):
         # set seed
         set_random_seed(seed)
 
-    def init_inference_optimization(self):
-        if self.neuron_config.on_device_sampling_config is not None:
-            self.sampler = Sampler(self.neuron_config)
-        self.kv_mgr = KVCacheManager(self.config, self.neuron_config, num_kv_head=self.num_key_value_heads)
-
     def _create_context_attn_mask(self, attention_mask, **kwargs):
         # Block diagonal causal mask for chunked prefill
         if self.neuron_config.is_chunked_prefill:

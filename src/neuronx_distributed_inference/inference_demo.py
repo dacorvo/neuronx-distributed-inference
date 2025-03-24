@@ -1,10 +1,7 @@
 import argparse
-import ast
 import copy
-import json
 import os
 import time
-from enum import Enum
 from typing import Type
 
 import torch
@@ -31,12 +28,6 @@ MODEL_TYPES = {
 }
 
 
-class CheckAccuracyMode(Enum):
-    SKIP_ACCURACY_CHECK = "skip-accuracy-check"
-    TOKEN_MATCHING = "token-matching"
-    LOGIT_MATCHING = "logit-matching"
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-type", type=str, choices=MODEL_TYPES.keys(), required=True)
@@ -52,18 +43,6 @@ def parse_args():
 def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--model-path", type=str, required=True)
     run_parser.add_argument("--compiled-model-path", type=str, required=True)
-
-    # Evaluation
-    run_parser.add_argument(
-        "--check-accuracy-mode",
-        type=CheckAccuracyMode,
-        choices=list(CheckAccuracyMode),
-        default=CheckAccuracyMode.SKIP_ACCURACY_CHECK,
-    )
-    run_parser.add_argument("--expected-outputs-path", type=validate_file_exists)
-    run_parser.add_argument("--divergence-difference-tol", type=float, default=0.001)
-    run_parser.add_argument("--tol-map", type=str)
-    run_parser.add_argument("--num-tokens-to-check", type=int)
 
     # Generation
     run_parser.add_argument("--prompt", dest="prompts", type=str, action="append", required=True)
@@ -125,8 +104,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--draft-model-path", type=str)
     run_parser.add_argument("--draft-model-tp-degree", type=int, default=None)
     run_parser.add_argument("--compiled-draft-model-path", type=str)
-    run_parser.add_argument("--enable-fused-speculation", action="store_true", default=False)
-
     run_parser.add_argument(
         "--no-trace-tokengen-model", dest="trace_tokengen_model", action="store_false"
     )
@@ -184,17 +161,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
         help="Adds metadata into the generated HLO. This metadata maps the HLO "
         "operators to the corresponding lines in the PyTorch code",
     )
-
-
-def validate_file_exists(path):
-    if not os.path.exists(path) or not os.path.isfile(path):
-        raise argparse.ArgumentError("Path must exist and be a file")
-    return path
-
-
-def load_json_file(json_path):
-    with open(json_path, "r") as f:
-        return json.load(f)
 
 
 def run_inference(model_cls: Type[NeuronApplicationBase], args):
