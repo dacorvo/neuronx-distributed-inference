@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import warnings
@@ -13,7 +14,7 @@ from neuronx_distributed.quantization.quantization_utils import (
 )
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
-from tranformers import PretrainedConfig
+from transformers import PretrainedConfig
 
 from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.models.model_wrapper import ModelWrapper
@@ -55,8 +56,10 @@ class NeuronApplicationBase(torch.nn.Module):
         if config is None:
             config = self.get_config_cls().load(model_path)
 
-        self.config = config
-        self.neuron_config = neuron_config
+        self.config = copy.deepcopy(config)
+        self.neuron_config = copy.deepcopy(neuron_config)
+        # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
+        self.config.torch_dtype = self.neuron_config.torch_dtype
         if neuron_config.flash_decoding_enabled:
             # FIXME: this should not be part of neuron_config but is used in downstream classes
             # Could it be deduced from tensor shapes ?
