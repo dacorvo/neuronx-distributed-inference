@@ -15,10 +15,11 @@ from neuronx_distributed.parallel_layers.mappings import (
 )
 from neuronx_distributed.quantization.quantization_utils import convert_qint8_to_int8_state_dict
 from torch import nn
+from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
-from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
+from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.models.model_wrapper import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,
     SPECULATION_MODEL_TAG,
@@ -52,7 +53,7 @@ class NeuronDecoderModel(nn.Module):
     The forward() function will be traced and compiled by NxD.
     """
 
-    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: PretrainedConfig, neuron_config: NeuronConfig):
         super().__init__()
 
         self.config = config
@@ -439,7 +440,7 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
     def __init__(
             self,
             model_path: str,
-            config: InferenceConfig = None,
+            config: PretrainedConfig = None,
             neuron_config: NeuronConfig = None):
         super().__init__(model_path, config=config, neuron_config=neuron_config)
 

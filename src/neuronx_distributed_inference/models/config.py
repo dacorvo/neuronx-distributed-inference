@@ -244,14 +244,14 @@ class NeuronConfig:
         return cls.from_json_file(config_file, **kwargs)
 
     @classmethod
-    def from_json_file(cls, json_file: Union[str, os.PathLike], **kwargs) -> "InferenceConfig":
+    def from_json_file(cls, json_file: Union[str, os.PathLike], **kwargs) -> "NeuronConfig":
         with open(json_file, "r", encoding="utf-8") as reader:
             config = cls.from_json_string(reader.read(), **kwargs)
             logging.info(f"Loaded Neuron config: {config.to_json_string()}")
             return config
 
     @classmethod
-    def from_json_string(cls, json_string: str, **kwargs) -> "InferenceConfig":
+    def from_json_string(cls, json_string: str, **kwargs) -> "NeuronConfig":
         merged_kwargs = json.loads(json_string)
         merged_kwargs.update(kwargs)
 
@@ -277,102 +277,6 @@ class MoENeuronConfig(NeuronConfig):
         self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
         self.glu_mlp = glu_mlp
         super().__init__(**kwargs)
-
-
-class InferenceConfig:
-    # Alias map for attributes.
-    attribute_map: Dict[str, str] = {}
-
-    def __init__(self, load_config=None, **kwargs):
-        if load_config is not None:
-            load_config(self)
-        else:
-            self.load_config()
-
-        # Override config values from kwargs.
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        self.validate_config()
-
-    def __setattr__(self, key, value):
-        if key in super().__getattribute__("attribute_map"):
-            key = super().__getattribute__("attribute_map")[key]
-        super().__setattr__(key, value)
-
-    def __getattribute__(self, key):
-        if key != "attribute_map" and key in super().__getattribute__("attribute_map"):
-            key = super().__getattribute__("attribute_map")[key]
-        return super().__getattribute__(key)
-
-    def load_config(self):
-        """
-        Loads the config and sets attributes needed by the model you use.
-        """
-        pass
-
-    def get_required_attributes(self) -> List[str]:
-        """The list of attributes that must be present for validation to pass."""
-        return []
-
-    def validate_config(self):
-        """
-        Validates that the config has all required attributes.
-        """
-        missing_attributes = [x for x in self.get_required_attributes() if not hasattr(self, x)]
-        assert len(missing_attributes) == 0, f"Config must define {missing_attributes}"
-
-    def save(self, model_path: Union[str, os.PathLike]):
-        """
-        Saves the config to a JSON file in the given model directory.
-        """
-        if not os.path.exists(model_path):
-            os.makedirs(model_path)
-        config_file = os.path.join(model_path, INFERENCE_CONFIG_FILE)
-        self.to_json_file(config_file)
-
-    def to_json_file(self, json_file: Union[str, os.PathLike]):
-        with open(json_file, "w", encoding="utf-8") as writer:
-            config_json = self.to_json_string()
-            logging.debug(f"Saving config: {config_json}")
-            writer.write(config_json + "\n")
-
-    def to_json_string(self) -> str:
-        config_dict = to_dict(self)
-        return json.dumps(config_dict, indent=2, sort_keys=True)
-
-    def get_text_config(self):
-        """
-        Returns text_config for the text model in multi-modal models.
-        Returns original config for text models
-        """
-        if hasattr(self, "text_config") and self.text_config is not None:
-            return self.text_config
-
-        return self
-
-    @classmethod
-    def load(cls, model_path: Union[str, os.PathLike], **kwargs) -> "InferenceConfig":
-        """
-        Loads the config from the given model directory.
-
-        The given kwargs override any properties of the same name from the JSON file.
-        """
-        config_file = os.path.join(model_path, INFERENCE_CONFIG_FILE)
-        return cls.from_json_file(config_file, **kwargs)
-
-    @classmethod
-    def from_json_file(cls, json_file: Union[str, os.PathLike], **kwargs) -> "InferenceConfig":
-        with open(json_file, "r", encoding="utf-8") as reader:
-            config = cls.from_json_string(reader.read(), **kwargs)
-            logging.info(f"Loaded Neuron config: {config.to_json_string()}")
-            return config
-
-    @classmethod
-    def from_json_string(cls, json_string: str, **kwargs) -> "InferenceConfig":
-        merged_kwargs = json.loads(json_string)
-        merged_kwargs.update(kwargs)
-        return cls(**merged_kwargs)
 
 
 class OnDeviceSamplingConfig:

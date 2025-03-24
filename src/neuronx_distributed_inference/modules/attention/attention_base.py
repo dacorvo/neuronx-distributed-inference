@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor, nn
 from torch.distributed import ProcessGroup
+from transformers import PretrainedConfig
 
 from .utils import (
     apply_rotary_pos_emb,
@@ -24,7 +25,7 @@ except ImportError:
 
 import neuronx_distributed as nxd
 import torch_xla.core.xla_model as xm
-from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
+from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.parallel_state import get_kv_shared_group
@@ -55,7 +56,7 @@ class NeuronAttentionBase(nn.Module):
     """
 
     def __init__(self,
-                 config: InferenceConfig,
+                 config: PretrainedConfig,
                  neuron_config: NeuronConfig,
                  tensor_model_parallel_group: Optional[ProcessGroup] = None):
         super().__init__()

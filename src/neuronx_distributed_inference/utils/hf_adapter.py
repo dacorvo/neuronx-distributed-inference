@@ -12,7 +12,6 @@ from transformers.modeling_outputs import ModelOutput
 
 from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
 from neuronx_distributed_inference.models.config import (
-    InferenceConfig,
     NeuronConfig,
     OnDeviceSamplingConfig,
     to_dict,
@@ -24,63 +23,9 @@ from neuronx_distributed_inference.modules.generation.sampling import (
 )
 
 
-def load_pretrained_config(
-    model_path_or_name: Optional[Union[str, os.PathLike]] = None,
-    hf_config: Optional[PretrainedConfig] = None,
-):
-    """Return a load_config hook for InferenceConfig that loads the config from a PretrainedConfig."""
-
-    def load_config(self: InferenceConfig):
-        if (model_path_or_name is None and hf_config is None) or (
-            model_path_or_name is not None and hf_config is not None
-        ):
-            raise ValueError('Please provide only one of "model_path_or_name" or "hf_config"')
-
-        if model_path_or_name is not None:
-            config: PretrainedConfig = AutoConfig.from_pretrained(model_path_or_name)
-        else:
-            config: PretrainedConfig = hf_config
-        config_dict = config.to_dict()
-
-        if "torch_dtype" in config_dict:
-            del config_dict["torch_dtype"] # FIXME: this makes checkpoint sharding fail if this is set to a string
-
-        # Convert nested configs to namespaces.
-        for k, v in config_dict.items():
-            if isinstance(getattr(config, k), PretrainedConfig):
-                config_dict[k] = SimpleNamespace(**v)
-
-        self.__dict__.update(config_dict)
-        if hasattr(config, "attribute_map"):
-            self.attribute_map = config.attribute_map
-
-    return load_config
-
-
-def _convert_modality_config_to_pretrained_config(config_dict: Dict, modality: str):
-    if modality in config_dict:
-        modality_config = config_dict[modality]
-        modality_config.pop("neuron_config", None)
-        config_dict[modality] = PretrainedConfig(**modality_config)
-    return config_dict
-
-
-def to_pretrained_config(config: InferenceConfig, neuron_config: NeuronConfig):
-    """Convert an InferenceConfig into a PretrainedConfig."""
-    config_dict = copy.deepcopy(to_dict(config))
-    config_dict["torch_dtype"] = neuron_config.torch_dtype
-
-    # handle nested configs for multi-modal models
-    config_dict = _convert_modality_config_to_pretrained_config(config_dict, "text_config")
-    config_dict = _convert_modality_config_to_pretrained_config(config_dict, "vision_config")
-
-    return PretrainedConfig(**config_dict)
-
-
 class HuggingFaceGenerationAdapter(PreTrainedModel):
     def __init__(self, model: NeuronApplicationBase):
-        hf_config = to_pretrained_config(model.config, model.neuron_config)
-        super().__init__(hf_config)
+        super().__init__(model.config)
 
         self.neuron_model = model
         self.neuron_config = model.neuron_config

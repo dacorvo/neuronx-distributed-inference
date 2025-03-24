@@ -12,8 +12,9 @@ from neuronx_distributed.quantization.quantization_config import (
 from neuronx_distributed.quantization.quantize import convert
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
+from transformers import PretrainedConfig
 
-from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
+from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.modules.autobucketing import (
     get_context_encoder_bk,
     get_generation_model_bk,
@@ -25,7 +26,7 @@ TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
 
 
-def get_bucket_model_config_from_tag(tag, config: InferenceConfig, neuron_config: NeuronConfig):
+def get_bucket_model_config_from_tag(tag, config: PretrainedConfig, neuron_config: NeuronConfig):
     bucket_degree = len(neuron_config.buckets)
     if bucket_degree == 1:
         return None
@@ -69,7 +70,7 @@ def get_bucket_model_config_from_tag(tag, config: InferenceConfig, neuron_config
 class ModelWrapper(torch.nn.Module):
     def __init__(
         self,
-        config: InferenceConfig,
+        config: PretrainedConfig,
         neuron_config: NeuronConfig,
         model_cls,
         tag="",
@@ -343,7 +344,7 @@ class ModelWrapper(torch.nn.Module):
 
 
 class DecoderModelInstance(BaseModelInstance):
-    def __init__(self, model_cls, config: InferenceConfig, neuron_config: NeuronConfig, **kwargs):
+    def __init__(self, model_cls, config: PretrainedConfig, neuron_config: NeuronConfig, **kwargs):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None

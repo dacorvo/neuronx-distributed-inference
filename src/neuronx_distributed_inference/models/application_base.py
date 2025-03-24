@@ -13,8 +13,9 @@ from neuronx_distributed.quantization.quantization_utils import (
 )
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
+from tranformers import PretrainedConfig
 
-from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
+from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.models.model_wrapper import ModelWrapper
 from neuronx_distributed_inference.modules.checkpoint import (
     load_state_dict,
@@ -45,7 +46,7 @@ class NeuronApplicationBase(torch.nn.Module):
     def __init__(
         self,
         model_path: str,
-        config: InferenceConfig = None,
+        config: PretrainedConfig = None,
         neuron_config: NeuronConfig = None,
     ):
         super().__init__()
@@ -105,7 +106,7 @@ class NeuronApplicationBase(torch.nn.Module):
         raise NotImplementedError("forward is not implemented")
 
     @classmethod
-    def get_config_cls(cls) -> InferenceConfig:
+    def get_config_cls(cls) -> PretrainedConfig:
         """Gets the config class for this model."""
         raise NotImplementedError("get_config_cls is not implemented")
 
@@ -218,7 +219,7 @@ class NeuronApplicationBase(torch.nn.Module):
         return model_sd
 
     @classmethod
-    def get_state_dict(cls, model_path: str, config: InferenceConfig, neuron_config: NeuronConfig) -> dict:
+    def get_state_dict(cls, model_path: str, config: PretrainedConfig, neuron_config: NeuronConfig) -> dict:
         """Gets the state dict for this model."""
         model_sd = load_state_dict(model_path)
         param_name_list = list(model_sd.keys())
@@ -241,7 +242,7 @@ class NeuronApplicationBase(torch.nn.Module):
         return model_sd
 
     @classmethod
-    def get_quantized_state_dict(cls, config: InferenceConfig, neuron_config: NeuronConfig, mmap: bool = False) -> dict:
+    def get_quantized_state_dict(cls, config: PretrainedConfig, neuron_config: NeuronConfig, mmap: bool = False) -> dict:
         """
         This function loads the checkpointed float model state dictionary and weights from the quantized hf model
         This will be removed once we move to safe tensors in NxD
@@ -289,12 +290,12 @@ class NeuronApplicationBase(torch.nn.Module):
         return model_quant_sd
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: InferenceConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: PretrainedConfig) -> dict:
         """This function should be over-ridden in child classes as needed"""
         return state_dict
 
     @classmethod
-    def save_quantized_state_dict(cls, model_path: str, config: InferenceConfig, neuron_config: NeuronConfig):
+    def save_quantized_state_dict(cls, model_path: str, config: PretrainedConfig, neuron_config: NeuronConfig):
         """
         Quantizes the model and saves the quantized checkpoint to `neuron_config.quantized_checkpoints_path`.
         """

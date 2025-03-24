@@ -26,11 +26,10 @@ from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, ParallelEmbedding
 from torch import nn
-from transformers import MixtralForCausalLM
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
-from transformers.models.mixtral.modeling_mixtral import MixtralRMSNorm
+from transformers.models.mixtral.modeling_mixtral import MixtralConfig, MixtralForCausalLM, MixtralRMSNorm
 
-from neuronx_distributed_inference.models.config import InferenceConfig, MoENeuronConfig
+from neuronx_distributed_inference.models.config import MoENeuronConfig
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.utils import RotaryEmbedding
 from neuronx_distributed_inference.modules.moe import initialize_moe_module
@@ -122,25 +121,8 @@ def get_rmsnorm_cls(neuron_config):
     return MixtralRMSNorm if neuron_config.on_cpu else CustomRMSNorm
 
 
-class MixtralInferenceConfig(InferenceConfig):
-    def get_required_attributes(self) -> List[str]:
-        return [
-            "hidden_size",
-            "num_attention_heads",
-            "num_hidden_layers",
-            "num_key_value_heads",
-            "pad_token_id",
-            "vocab_size",
-            "max_position_embeddings",
-            "rope_theta",
-            "num_local_experts",
-            "num_experts_per_tok",
-            "rms_norm_eps",
-        ]
-
-
 class NeuronMixtralAttention(NeuronAttentionBase):
-    def __init__(self, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig):
+    def __init__(self, config: MixtralConfig, neuron_config: MoENeuronConfig):
         if not parallel_state.model_parallel_is_initialized():
             raise ValueError(
                 "NeuronMixtralAttention has to be initialized in a distributed env. Please use neuronx_distributed"
@@ -162,7 +144,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig, layer_idx: int):
+    def __init__(self, config: MixtralConfig, neuron_config: MoENeuronConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronMixtralAttention(config, neuron_config)
@@ -239,7 +221,7 @@ class NeuronMixtralModel(NeuronDecoderModel):
     The forward function of this class is traced.
     """
 
-    def __init__(self, config: InferenceConfig, neuron_config: MoENeuronConfig):
+    def __init__(self, config: MixtralConfig, neuron_config: MoENeuronConfig):
         super().__init__(config, neuron_config)
 
         self.embed_tokens = ParallelEmbedding(
@@ -276,15 +258,11 @@ class NeuronMixtralForCausalLM(NeuronBaseForCausalLM):
         return MixtralForCausalLM.from_pretrained(model_path)
 
     @classmethod
-    def get_config_cls(cls):
-        return MixtralInferenceConfig
-
-    @classmethod
     def get_neuron_config_cls(cls):
         return MoENeuronConfig
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralInferenceConfig, neuron_config: MoENeuronConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralConfig, neuron_config: MoENeuronConfig) -> dict:
         return convert_mixtral_to_neuron_state_dict(state_dict, config, neuron_config)
 
     def get_compiler_args(self):

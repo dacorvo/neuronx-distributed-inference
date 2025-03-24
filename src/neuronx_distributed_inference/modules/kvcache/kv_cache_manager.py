@@ -2,12 +2,13 @@ import logging
 from typing import List
 
 import torch
+from transformers import PretrainedConfig
 from neuronx_distributed.parallel_layers import parallel_state, utils
 from neuronx_distributed.quantization import dequantize, quantize
 from torch import Tensor, nn
 from torch_neuronx.xla_impl.ops import ConcatenateOp
 
-from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig
+from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.modules.attention.gqa import (  # noqa: E402; noqa: E402; noqa: E402
     determine_sharding_strategy,
     get_shardable_head_counts,
@@ -47,7 +48,7 @@ class KVCacheManager(nn.Module):
     and vends out read and write operations.
     """
 
-    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig, **kwargs):
+    def __init__(self, config: PretrainedConfig, neuron_config: NeuronConfig, **kwargs):
         super().__init__()
         self.padding_side = neuron_config.padding_side
         self.is_continuous_batching = neuron_config.is_continuous_batching
@@ -74,7 +75,7 @@ class KVCacheManager(nn.Module):
         if self.quant:
             self.past_key_values = self.past_key_values.to(self.quant_dtype)
 
-    def _get_num_kv_heads_per_rank(self, config: InferenceConfig, neuron_config: NeuronConfig):
+    def _get_num_kv_heads_per_rank(self, config: PretrainedConfig, neuron_config: NeuronConfig):
         tp_degree = neuron_config.tp_degree
         num_kv_head = self.num_kv_head
         num_atten_head = config.num_attention_heads
@@ -90,13 +91,13 @@ class KVCacheManager(nn.Module):
             num_kv_heads_per_rank = num_key_value_heads
         return num_kv_heads_per_rank
 
-    def _get_hidden_dim_per_head(self, config: InferenceConfig):
+    def _get_hidden_dim_per_head(self, config: PretrainedConfig):
         hidden_size = config.hidden_size
         num_atten_head = config.num_attention_heads
         hidden_dim_per_head = hidden_size // num_atten_head
         return hidden_dim_per_head
 
-    def _init_kv_shape(self, config: InferenceConfig, neuron_config: NeuronConfig):
+    def _init_kv_shape(self, config: PretrainedConfig, neuron_config: NeuronConfig):
         max_batch_size = neuron_config.max_batch_size
         max_len = neuron_config.max_length
         num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)

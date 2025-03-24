@@ -54,9 +54,9 @@ from torch import nn
 from torch_neuronx.xla_impl.ops import nki_jit
 from transformers import LlamaForCausalLM
 from transformers.activations import ACT2FN
-from transformers.models.llama.modeling_llama import LlamaRMSNorm, LlamaRotaryEmbedding
+from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
 
-from neuronx_distributed_inference.models.config import InferenceConfig, NeuronConfig  # noqa: E402
+from neuronx_distributed_inference.models.config import NeuronConfig  # noqa: E402
 from neuronx_distributed_inference.models.decoder import (  # noqa: E402
     NeuronBaseForCausalLM,
     NeuronDecoderModel,
@@ -84,7 +84,7 @@ def get_rmsnorm_cls():
     return CustomRMSNorm if parallel_state.model_parallel_is_initialized() else LlamaRMSNorm
 
 
-def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: InferenceConfig):
+def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: LlamaConfig):
     """
     This function concats the qkv weights to a Wqkv weight for fusedqkv, and deletes the qkv weights.
     """
@@ -105,29 +105,12 @@ def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: InferenceConfig):
     return llama_state_dict
 
 
-class LlamaInferenceConfig(InferenceConfig):
-
-    def get_required_attributes(self) -> List[str]:
-        return [
-            "hidden_size",
-            "num_attention_heads",
-            "num_hidden_layers",
-            "num_key_value_heads",
-            "pad_token_id",
-            "vocab_size",
-            "max_position_embeddings",
-            "rope_theta",
-            "rms_norm_eps",
-            "hidden_act",
-        ]
-
-
 class NeuronLlamaMLP(nn.Module):
     """
     This class just replace the linear layers (gate_proj, up_proj and down_proj) with column and row parallel layers
     """
 
-    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: LlamaConfig, neuron_config: NeuronConfig):
         super().__init__()
         self.tp_degree = neuron_config.tp_degree
         self.hidden_size = config.hidden_size
@@ -500,7 +483,7 @@ class NeuronLlamaAttention(NeuronAttentionBase):
     """
 
     def __init__(self,
-                 config: InferenceConfig,
+                 config: LlamaConfig,
                  neuron_config: NeuronConfig):
         super().__init__(config, neuron_config)
         head_dim = config.hidden_size // config.num_attention_heads
@@ -606,7 +589,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: LlamaConfig, neuron_config: NeuronConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronLlamaAttention(config, neuron_config)
@@ -685,7 +668,7 @@ class NeuronLlamaModel(NeuronDecoderModel):
     The neuron version of the LlamaModel
     """
 
-    def __init__(self, config: InferenceConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: LlamaConfig, neuron_config: NeuronConfig):
         super().__init__(config, neuron_config)
 
         if parallel_state.model_parallel_is_initialized():
@@ -750,7 +733,7 @@ class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
         return LlamaForCausalLM.from_pretrained(model_path)
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: InferenceConfig, neuron_config: NeuronConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: LlamaConfig, neuron_config: NeuronConfig) -> dict:
         """This function should be over-ridden in child classes as needed"""
         if neuron_config.fused_qkv:
             state_dict = convert_state_dict_to_fused_qkv(state_dict, config)
@@ -775,10 +758,6 @@ class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
     @staticmethod
     def update_state_dict_for_tied_weights(state_dict):
         state_dict["lm_head.weight"] = state_dict["embed_tokens.weight"].clone()
-
-    @classmethod
-    def get_config_cls(cls):
-        return LlamaInferenceConfig
 
     @classmethod
     def get_neuron_config_cls(cls) -> Type[NeuronConfig]:

@@ -20,7 +20,6 @@ from neuronx_distributed_inference.models.llama.modeling_llama import NeuronLlam
 from neuronx_distributed_inference.models.mixtral.modeling_mixtral import NeuronMixtralForCausalLM
 from neuronx_distributed_inference.utils.accuracy import get_generate_outputs
 from neuronx_distributed_inference.utils.distributed import get_init_rank, get_init_world_size
-from neuronx_distributed_inference.utils.hf_adapter import load_pretrained_config
 from neuronx_distributed_inference.utils.random import set_random_seed
 
 set_random_seed(0)
