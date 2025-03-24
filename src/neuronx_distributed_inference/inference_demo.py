@@ -241,27 +241,28 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         model_cls.save_quantized_state_dict(args.model_path, config, neuron_config)
 
     # Compile and save model.
-    compiling_start_time = time.monotonic()
     if not args.skip_compile:
         print("\nCompiling and saving model...")
+        compiling_start_time = time.monotonic()
         model.compile(args.compiled_model_path, debug=args.hlo_debug)
         if draft_model is not None:
             print("\nCompiling and saving draft model...")
             draft_model.compile(args.compiled_draft_model_path)
+        compiling_end_time = time.monotonic()
+        total_compiling_time = compiling_end_time - compiling_start_time
+        print(f"Compiling and tracing time: {total_compiling_time} seconds")
+        if args.compile_only:
+            return
 
     if args.enable_torch_dist:
         torch.distributed.barrier()
 
-    if args.compile_only:
-        return
-    compiling_end_time = time.monotonic()
-    total_compiling_time = compiling_end_time - compiling_start_time
-    print(f"Compiling and tracing time: {total_compiling_time} seconds")
     # Load compiled model to Neuron.
     print("\nLoading model to Neuron...")
+    loading_start_time = time.monotonic()
     model.load(args.compiled_model_path)
     loading_end_time = time.monotonic()
-    model_loading_time = loading_end_time - compiling_end_time
+    model_loading_time = loading_end_time - loading_start_time
     print(f"Total model loading time: {model_loading_time} seconds")
 
     if draft_model is not None:
