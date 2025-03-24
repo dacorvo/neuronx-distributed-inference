@@ -1,7 +1,7 @@
 #!/bin/bash
 inference_demo  --model-type llama --task-type causal-lm run \
-                --model-path ./Llama-3.2-1B-Instruct/ \
-                --compiled-model-path Llama-3.2-1B-Instruct-traced \
+                --model-path ./Llama-3.1-8B-Instruct/ \
+                --compiled-model-path Llama-3.1-8B-Instruct-traced \
                 --draft-model-path ./Llama-3.2-1B-Instruct/ \
                 --compiled-draft-model-path Llama-3.2-1B-Instruct-draft-traced \
                 --torch-dtype bfloat16 \
