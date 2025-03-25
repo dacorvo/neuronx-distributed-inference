@@ -2,8 +2,8 @@ import copy
 from typing import Any, Dict, Optional, Union
 
 import torch
-from transformers import GenerationConfig, PreTrainedModel
-from transformers.generation import SampleDecoderOnlyOutput
+from transformers import GenerationConfig
+from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.modeling_outputs import ModelOutput
@@ -19,19 +19,29 @@ from neuronx_distributed_inference.modules.generation.sampling import (
 )
 
 
-class HuggingFaceGenerationAdapter(PreTrainedModel):
-    def __init__(self, model: NeuronApplicationBase):
-        super().__init__(model.config)
+class HuggingFaceGenerationAdapter(GenerationMixin):
 
+    # These are expected to be set by the GenerationMixin code
+    main_input_name = "input_ids"
+    _is_stateful = False
+    _supports_cache_class = False
+
+    def __init__(self, model: NeuronApplicationBase):
+        self.config = model.config
+        # Initialize default generation config
+        self.generation_config = GenerationConfig.from_model_config(model.config)
         self.neuron_model = model
         self.neuron_config = model.neuron_config
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self.padding_side = self.neuron_config.padding_side
         self.sampler = None
         self.prev_kv_cache_populated = False
-
-        # WARNING: Neuron Forward is needed by any models with additional input args
+        # Simply forward to Neuron model
         self.forward = self.neuron_model.forward
+
+    def can_generate(self):
+        # Still required in transformers <= 4.50
+        return True
 
     def generate(self, *args, **kwargs):
         # Keep generation stateless.
@@ -89,7 +99,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
             model_kwargs["attention_mask"] = model_inputs.get("attention_mask")
 
             # forward pass to get next token
-            outputs = self(**model_inputs, return_dict=True)
+            outputs = self.forward(**model_inputs, return_dict=True)
 
             if not self.on_device_sampling:
                 next_token_logits = outputs.logits[:, -1, :].clone()
@@ -274,7 +284,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
 
         # Run the target model once and get the first generated token
         model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
-        outputs = self(**model_inputs)
+        outputs = self.forward(**model_inputs)
 
         curr_pos = model_inputs["position_ids"][0].argmax(dim=-1)
         new_token = outputs.logits[:, 0].argmax(dim=-1, keepdim=True)
@@ -297,7 +307,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
                 is_for_token_generation = assistant_model.neuron_model.kv_cache_populated
 
                 # 1.2 Use the assistant model to obtain the next candidate logits
-                assistant_model_outputs = assistant_model(**assistant_inputs)
+                assistant_model_outputs = assistant_model.forward(**assistant_inputs)
                 assistant_new_token = assistant_model_outputs.logits[:, 0, :].argmax(dim=-1)
 
                 # 1.3 Update inputs and args for next iteration
@@ -343,7 +353,7 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
                 )
 
             # 2.2. Run a forward pass on the candidate sequence
-            outputs = self(
+            outputs = self.forward(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
