@@ -13,7 +13,6 @@ import torch
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
 from neuronx_distributed_inference.utils.constants import *
-from neuronx_distributed_inference.utils.hf_adapter import HuggingFaceGenerationAdapter
 
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
@@ -32,20 +31,18 @@ def get_generate_outputs(
 
     # Update generation kwargs to run Neuron model.
     if draft_model is not None:
-        draft_generation_model = HuggingFaceGenerationAdapter(draft_model)
-        draft_generation_model.generation_config.update(
+        draft_model.generation_config.update(
             num_assistant_tokens=model.neuron_config.speculation_length
         )
 
         generate_kwargs.update(
             {
-                "assistant_model": draft_generation_model,
+                "assistant_model": draft_model,
                 "do_sample": False,
             }
         )
 
-    generation_model = HuggingFaceGenerationAdapter(model)
-    outputs = generation_model.generate(token_ids, attention_mask=attention_mask, **generate_kwargs)
+    outputs = model.generate(token_ids, attention_mask=attention_mask, **generate_kwargs)
 
     model.reset()
     if draft_model is not None:

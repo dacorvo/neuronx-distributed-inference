@@ -33,6 +33,7 @@ from neuronx_distributed_inference.modules.flashdecode.utils import (
     mask_util,
     turn_2d_mask_to_4d,
 )
+from neuronx_distributed_inference.modules.generation.generation_utils import NxDGenerationMixin
 from neuronx_distributed_inference.modules.generation.sampling import (
     Sampler,
     prepare_sampling_params,
@@ -429,7 +430,7 @@ class NeuronDecoderModel(nn.Module):
         return (hidden_states, next_decoder_cache)
 
 
-class NeuronBaseForCausalLM(NeuronApplicationBase):
+class NeuronBaseForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
     _model_cls = None
 
     def __init__(

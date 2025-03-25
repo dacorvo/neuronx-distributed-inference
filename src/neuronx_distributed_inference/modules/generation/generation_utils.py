@@ -19,22 +19,21 @@ from neuronx_distributed_inference.modules.generation.sampling import (
 )
 
 
-class HuggingFaceGenerationAdapter(GenerationMixin):
+class NxDGenerationMixin(GenerationMixin):
+    """A generation Mixin that can be used to extend NeuronApplicationBase based classes
+    """
 
     # These are expected to be set by the GenerationMixin code
     main_input_name = "input_ids"
     _is_stateful = False
     _supports_cache_class = False
 
-    def __init__(self, model: NeuronApplicationBase):
-        self.config = model.config
+    def __init__(self, config, neuron_config):
+        # Call the next constructor, which should be a child of NeuronApplicationBase
+        super().__init__(config, neuron_config)
         # Initialize default generation config
-        self.generation_config = GenerationConfig.from_model_config(model.config)
-        self.neuron_model = model
-        self.neuron_config = model.neuron_config
+        self.generation_config = GenerationConfig.from_model_config(self.config)
         self.sampler = None
-        # Simply forward to Neuron model
-        self.forward = self.neuron_model.forward
 
     def can_generate(self):
         # Still required in transformers <= 4.50
@@ -42,7 +41,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
 
     def generate(self, *args, **kwargs):
         # Keep generation stateless.
-        self.neuron_model.reset()
+        self.reset()
         return super().generate(*args, **kwargs)
 
     # TODO: Remove _sample and define separate flow for on-device sampling that doesn't use HF.
@@ -99,7 +98,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
             # forward pass to get next token
             outputs = self.forward(**model_inputs, return_dict=True)
 
-            if self.neuron_model.neuron_config.on_device_sampling_config is None:
+            if self.neuron_config.on_device_sampling_config is None:
                 next_token_logits = outputs.logits[:, -1, :].clone()
 
                 # pre-process distribution
@@ -168,7 +167,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         **kwargs,
     ):
         # Store KV cache flag before forward pass.
-        if self.neuron_model.kv_cache_populated:
+        if self.kv_cache_populated:
             input_ids = input_ids[:, -1:]
 
         position_ids = kwargs.get("position_ids", None)
@@ -176,7 +175,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
             # create position_ids on the fly for batch generation
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
-            if self.neuron_model.kv_cache_populated:
+            if self.kv_cache_populated:
                 position_ids = torch.amax(position_ids, 1, keepdim=True)
                 position_ids = position_ids + 1
 
@@ -197,7 +196,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         )
 
         # WARNING: This is needed for propagating additional kwargs to the neuron model
-        additional_kwargs = self.neuron_model.get_required_kwargs()
+        additional_kwargs = self.get_required_kwargs()
         for arg in additional_kwargs:
             model_inputs.update({arg: kwargs.get(arg, None)})
 
@@ -298,7 +297,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
                     candidate_input_ids,
                     **assistant_kwargs,
                 )
-                is_for_token_generation = assistant_model.neuron_model.kv_cache_populated
+                is_for_token_generation = assistant_model.kv_cache_populated
 
                 # 1.2 Use the assistant model to obtain the next candidate logits
                 assistant_model_outputs = assistant_model.forward(**assistant_inputs)
