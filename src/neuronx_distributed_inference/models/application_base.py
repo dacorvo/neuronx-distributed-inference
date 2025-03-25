@@ -35,10 +35,6 @@ def normalize_path(path):
     return os.path.join(normalized, "")
 
 
-def is_compiled(model_path):
-    return os.path.isfile(model_path + COMPILED_MODEL_FILE_NAME)
-
-
 class NeuronApplicationBase(torch.nn.Module):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
@@ -70,7 +66,6 @@ class NeuronApplicationBase(torch.nn.Module):
         self.model_path = model_path
         self.models: List[ModelWrapper] = []
         self.traced_model = None
-        self.is_compiled = is_compiled(model_path)
         self.is_loaded_to_neuron = False
         self._builder = None
 
@@ -147,7 +142,6 @@ class NeuronApplicationBase(torch.nn.Module):
                 self.get_builder(debug).transform_weight_layout_with_overriden_option(
                     sharded_checkpoint_dir=sharded_checkpoint_dir
                 )
-        self.is_compiled = True
 
     def load(self, compiled_model_path, start_rank_id=None, local_ranks_size=None):
         compiled_model_path = normalize_path(compiled_model_path)
