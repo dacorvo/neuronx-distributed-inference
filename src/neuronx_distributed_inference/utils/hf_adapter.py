@@ -1,11 +1,9 @@
 import copy
-import os
-from types import SimpleNamespace
 from typing import Any, Dict, Optional, Union
 
 import torch
-from transformers import AutoConfig, GenerationConfig, PretrainedConfig, PreTrainedModel
-from transformers.generation import GenerateDecoderOnlyOutput, SampleDecoderOnlyOutput
+from transformers import GenerationConfig, PreTrainedModel
+from transformers.generation import SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.modeling_outputs import ModelOutput
@@ -14,8 +12,6 @@ from neuronx_distributed_inference.models.application_base import NeuronApplicat
 from neuronx_distributed_inference.models.config import (
     NeuronConfig,
     OnDeviceSamplingConfig,
-    to_dict,
-    to_torch_dtype,
 )
 from neuronx_distributed_inference.modules.generation.sampling import (
     Sampler,
@@ -239,38 +235,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
             model_kwargs["attention_mask"] = attention_mask
         return model_kwargs
 
-    def _update_model_kwargs_for_fused_generation(
-        self,
-        outputs: ModelOutput,
-        model_kwargs: Dict[str, Any],
-        accepted_len: int = 0,
-    ):
-        if getattr(outputs, "state", None) is not None:
-            model_kwargs["state"] = outputs.state
-        # update attention mask
-        if "attention_mask" in model_kwargs:
-            attention_mask = model_kwargs["attention_mask"]
-            if self.padding_side == "left":
-                attention_mask = torch.cat(
-                    [
-                        attention_mask,
-                        attention_mask.new_ones((attention_mask.shape[0], accepted_len)),
-                    ],
-                    dim=-1,
-                )
-                attention_mask = attention_mask[:, 1:]
-            else:
-                attention_mask = torch.cat(
-                    [
-                        attention_mask.new_ones((attention_mask.shape[0], accepted_len)),
-                        attention_mask,
-                    ],
-                    dim=-1,
-                )
-            model_kwargs["attention_mask"] = attention_mask
-
-        return model_kwargs
-
     def _assisted_decoding(
         self,
         input_ids: torch.LongTensor,
@@ -438,7 +402,6 @@ class HuggingFaceGenerationAdapter(PreTrainedModel):
                 break
 
         return returned_ids
-
 
     @property
     def device(self) -> torch.device:

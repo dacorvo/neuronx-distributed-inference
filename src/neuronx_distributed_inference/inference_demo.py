@@ -284,19 +284,18 @@ def run_generation(
     print("\nGenerating outputs...")
     print(f"Prompts: {prompts}")
 
-    _, output_tokens = get_generate_outputs(
+    _, generated_texts = get_generate_outputs(
         model,
         prompts,
         tokenizer,
-        is_hf=False,
         draft_model=draft_model,
         generation_config=generation_config,
         max_new_tokens=max_new_tokens,
     )
 
     print("Generated outputs:")
-    for i, output_token in enumerate(output_tokens):
-        print(f"Output {i}: {output_token}")
+    for i, text in enumerate(generated_texts):
+        print(f"Output {i}: {text}")
 
 
 def main():
