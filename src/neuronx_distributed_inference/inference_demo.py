@@ -197,9 +197,9 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
             draft_neuron_config.tp_degree = args.draft_model_tp_degree
 
         draft_config = AutoConfig.from_pretrained(args.draft_model_path)
-        draft_model = model_cls(args.draft_model_path, draft_config, draft_neuron_config)
+        draft_model = model_cls(draft_config, draft_neuron_config)
 
-    model = model_cls(args.model_path, config, neuron_config)
+    model = model_cls(config, neuron_config)
 
     # Quantize model.
     if neuron_config.quantized:
@@ -216,6 +216,14 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
         compiling_end_time = time.monotonic()
         total_compiling_time = compiling_end_time - compiling_start_time
         print(f"Compiling and tracing time: {total_compiling_time} seconds")
+        if args.save_sharded_checkpoint:
+            print("\nSharding and saving weights ...")
+            sharding_start_time = time.monotonic()
+            model.shard_checkpoint(args.model_path, args.compiled_model_path)
+            if draft_model is not None:
+                draft_model.shard_checkpoint(args.draft_model_path, args.compiled_draft_model_path)
+            sharding_end_time = time.monotonic()
+            print(f"Sharding and saving time: {sharding_end_time - sharding_start_time} seconds")
         if args.compile_only:
             return
 
@@ -225,14 +233,16 @@ def run_inference(model_cls: Type[NeuronApplicationBase], args):
     # Load compiled model to Neuron.
     print("\nLoading model to Neuron...")
     loading_start_time = time.monotonic()
-    model.load(args.compiled_model_path)
+    weight_path = args.compiled_model_path if neuron_config.save_sharded_checkpoint else args.model_path
+    model.load(args.compiled_model_path, weight_path)
     loading_end_time = time.monotonic()
     model_loading_time = loading_end_time - loading_start_time
     print(f"Total model loading time: {model_loading_time} seconds")
 
     if draft_model is not None:
         print("\nLoading draft model to Neuron...")
-        draft_model.load(args.compiled_draft_model_path)
+        draft_weight_path = args.compiled_draft_model_path if draft_neuron_config.save_sharded_checkpoint else args.draft_model_path
+        draft_model.load(args.compiled_draft_model_path, draft_weight_path)
 
     if args.enable_torch_dist:
         torch.distributed.barrier()

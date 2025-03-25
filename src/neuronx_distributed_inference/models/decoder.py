@@ -434,10 +434,9 @@ class NeuronBaseForCausalLM(NeuronApplicationBase):
 
     def __init__(
             self,
-            model_path: str,
             config: PretrainedConfig = None,
             neuron_config: NeuronConfig = None):
-        super().__init__(model_path, config=config, neuron_config=neuron_config)
+        super().__init__(config=config, neuron_config=neuron_config)
 
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
