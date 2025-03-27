@@ -80,7 +80,41 @@ class NxDDecoderWrapper(NxDModelWrapper):
         priority_model_idx: int = None,
         model_init_kwargs={},
     ) -> None:
-        super().__init__()
+        if compiler_args is None:
+            tensorizer_options = (
+                "--enable-ccop-compute-overlap "
+                f"--cc-pipeline-tiling-factor={neuron_config.cc_pipeline_tiling_factor} "
+                "--vectorize-dge-dma "
+                "--vectorize-strided-dma "
+            )
+
+            compiler_args = (
+                "--auto-cast=none --model-type=transformer "
+                f"--tensorizer-options='{tensorizer_options}'"
+                " -O1 "
+                f" --internal-num-neuroncores-per-sengine={neuron_config.logical_neuron_cores}"
+            )
+
+            if neuron_config.target:
+                compiler_args += f" --target {neuron_config.target}"
+
+        else:
+            compiler_args = compiler_args
+
+        if (
+            (
+                neuron_config.quantized is True
+                and neuron_config.quantization_dtype == "f8e4m3"
+            )
+            or neuron_config.kv_cache_quant
+            or neuron_config.quantized_mlp_kernel_enabled
+        ):
+            compiler_args += (
+                " --internal-hlo2tensorizer-options='--experimental-unsafe-fp8e4m3fn-as-fp8e4m3' "
+            )
+
+        logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
+        super().__init__(tag, priority_model_idx, compiler_args)
         self.config = config
         self.neuron_config = neuron_config
 
@@ -94,48 +128,11 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self.model = None
         self.is_compiled = False
         self.serialize_base_path = None
-        self.tag = tag
 
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
         self.compiler_workdir = os.path.join(base_compile_work_dir, self.tag)
 
-        if compiler_args is None:
-            tensorizer_options = (
-                "--enable-ccop-compute-overlap "
-                f"--cc-pipeline-tiling-factor={self.neuron_config.cc_pipeline_tiling_factor} "
-                "--vectorize-dge-dma "
-                "--vectorize-strided-dma "
-            )
 
-            self.compiler_args = (
-                "--auto-cast=none --model-type=transformer "
-                f"--tensorizer-options='{tensorizer_options}'"
-                " -O1 "
-                f" --internal-num-neuroncores-per-sengine={self.neuron_config.logical_neuron_cores}"
-            )
-
-            if self.neuron_config.target:
-                self.compiler_args += f" --target {self.neuron_config.target}"
-
-        else:
-            self.compiler_args = compiler_args
-
-        if (
-            (
-                self.neuron_config.quantized is True
-                and self.neuron_config.quantization_dtype == "f8e4m3"
-            )
-            or self.neuron_config.kv_cache_quant
-            or self.neuron_config.quantized_mlp_kernel_enabled
-        ):
-            self.compiler_args += (
-                " --internal-hlo2tensorizer-options='--experimental-unsafe-fp8e4m3fn-as-fp8e4m3' "
-            )
-
-        logging.info(f"neuronx-cc compiler_args are: {self.compiler_args}")
-
-        self.bucket_config = get_bucket_model_config_from_tag(tag, self.config, self.neuron_config)
-        self.priority_model_idx = priority_model_idx
         self.model_init_kwargs = model_init_kwargs
         self.async_mode = self.neuron_config.async_mode
 
@@ -189,6 +186,9 @@ class NxDDecoderWrapper(NxDModelWrapper):
             neuron_config=self.neuron_config,
             **self.model_init_kwargs,
         )
+
+    def get_bucket_config(self):
+        return get_bucket_model_config_from_tag(self.tag, self.config, self.neuron_config)
 
     def _forward_with_pad(self, *args):
         seq_ids = args[3]
