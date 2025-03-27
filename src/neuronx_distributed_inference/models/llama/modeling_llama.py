@@ -57,10 +57,6 @@ from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
 
 from neuronx_distributed_inference.models.config import NeuronConfig  # noqa: E402
-from neuronx_distributed_inference.models.decoder import (  # noqa: E402
-    NeuronBaseForCausalLM,
-    NeuronDecoderModel,
-)
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.gqa import (  # noqa: E402
     BaseGroupQueryAttention,
@@ -72,6 +68,8 @@ from neuronx_distributed_inference.modules.attention.utils import (
 )
 from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 from neuronx_distributed_inference.modules.flashdecode.utils import calculate_num_cores_per_group
+
+from ..decoder import NxDDecoderModel, NxDModelForCausalLM
 
 
 logger = logging.getLogger("Neuron")
@@ -663,7 +661,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
         return outputs
 
 
-class NeuronLlamaModel(NeuronDecoderModel):
+class NeuronLlamaModel(NxDDecoderModel):
     """
     The neuron version of the LlamaModel
     """
@@ -717,7 +715,7 @@ class NeuronLlamaModel(NeuronDecoderModel):
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 
-class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
+class NeuronLlamaForCausalLM(NxDModelForCausalLM):
     """
     This class extends LlamaForCausalLM create traceable
     blocks for Neuron.

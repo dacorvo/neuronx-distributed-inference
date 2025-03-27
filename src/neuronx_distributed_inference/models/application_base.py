@@ -18,7 +18,7 @@ from safetensors.torch import load_file
 from transformers import PretrainedConfig
 
 from neuronx_distributed_inference.models.config import NeuronConfig
-from neuronx_distributed_inference.models.model_wrapper import ModelWrapper
+from neuronx_distributed_inference.models.model_wrapper import NxDModelWrapper
 from neuronx_distributed_inference.modules.checkpoint import (
     load_state_dict,
     prune_state_dict,
@@ -63,7 +63,7 @@ class NeuronApplicationBase(torch.nn.Module):
                 config.num_attention_heads, config.num_key_value_heads, neuron_config.tp_degree
             )
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
-        self.models: List[ModelWrapper] = []
+        self.models: List[NxDModelWrapper] = []
         self.traced_model = None
         self.is_loaded_to_neuron = False
 

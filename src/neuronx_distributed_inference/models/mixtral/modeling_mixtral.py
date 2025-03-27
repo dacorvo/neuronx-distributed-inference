@@ -18,7 +18,6 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 
-from neuronx_distributed_inference.models.decoder import NeuronBaseForCausalLM, NeuronDecoderModel
 from neuronx_distributed_inference.modules.custom_calls import CustomRMSNorm
 
 # Try except for the compatibility with older compiler version
@@ -33,6 +32,8 @@ from neuronx_distributed_inference.models.config import MoENeuronConfig
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.utils import RotaryEmbedding
 from neuronx_distributed_inference.modules.moe import initialize_moe_module
+
+from ..decoder import NxDDecoderModel, NxDModelForCausalLM
 
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
@@ -215,7 +216,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
         return outputs
 
 
-class NeuronMixtralModel(NeuronDecoderModel):
+class NeuronMixtralModel(NxDDecoderModel):
     """
     NeuronMixtralModel extends the MixtralModel to be traceable.
     The forward function of this class is traced.
@@ -246,7 +247,7 @@ class NeuronMixtralModel(NeuronDecoderModel):
         )
 
 
-class NeuronMixtralForCausalLM(NeuronBaseForCausalLM):
+class NeuronMixtralForCausalLM(NxDModelForCausalLM):
     """
     This class can be used as MixtralForCausalLM
     """
