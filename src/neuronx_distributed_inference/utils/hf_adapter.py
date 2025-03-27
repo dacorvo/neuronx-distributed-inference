@@ -32,10 +32,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         self.generation_config = GenerationConfig.from_model_config(model.config)
         self.neuron_model = model
         self.neuron_config = model.neuron_config
-        self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
-        self.padding_side = self.neuron_config.padding_side
         self.sampler = None
-        self.prev_kv_cache_populated = False
         # Simply forward to Neuron model
         self.forward = self.neuron_model.forward
 
@@ -92,6 +89,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         )
 
         this_peer_finished = False
+        is_for_token_generation = False
         # auto-regressive generation
         while not this_peer_finished:
             # prepare model inputs
@@ -101,7 +99,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
             # forward pass to get next token
             outputs = self.forward(**model_inputs, return_dict=True)
 
-            if not self.on_device_sampling:
+            if self.neuron_model.neuron_config.on_device_sampling_config is None:
                 next_token_logits = outputs.logits[:, -1, :].clone()
 
                 # pre-process distribution
@@ -144,8 +142,9 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
             model_kwargs = self._update_model_kwargs_for_generation(
                 outputs,
                 model_kwargs,
-                is_encoder_decoder=self.config.is_encoder_decoder,
+                is_for_token_generation=is_for_token_generation
             )
+            is_for_token_generation = True
 
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
@@ -169,7 +168,6 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         **kwargs,
     ):
         # Store KV cache flag before forward pass.
-        self.prev_kv_cache_populated = self.neuron_model.kv_cache_populated
         if self.neuron_model.kv_cache_populated:
             input_ids = input_ids[:, -1:]
 
@@ -211,12 +209,8 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         self,
         outputs: ModelOutput,
         model_kwargs: Dict[str, Any],
-        is_for_token_generation: Optional[bool] = None,
-        is_encoder_decoder: bool = False,
+        is_for_token_generation: bool,
     ) -> Dict[str, Any]:
-        if is_for_token_generation is None:
-            is_for_token_generation = self.prev_kv_cache_populated
-
         if getattr(outputs, "state", None) is not None:
             model_kwargs["state"] = outputs.state
 
@@ -231,7 +225,7 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
         if "attention_mask" in model_kwargs:
             attention_mask = model_kwargs["attention_mask"]
             if is_for_token_generation:
-                if self.padding_side == "left":
+                if self.neuron_config.padding_side == "left":
                     attention_mask = torch.cat(
                         [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))],
                         dim=-1,
@@ -318,7 +312,6 @@ class HuggingFaceGenerationAdapter(GenerationMixin):
                     assistant_model_outputs,
                     assistant_kwargs,
                     is_for_token_generation,
-                    is_encoder_decoder=assistant_model.config.is_encoder_decoder,
                 )
 
                 # 1.4 Stop assistant generation on EOS
