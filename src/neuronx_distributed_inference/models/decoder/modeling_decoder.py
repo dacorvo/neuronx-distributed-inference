@@ -494,7 +494,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
             neuron_config=new_neuron_config,
             model_cls=self._model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
-            compiler_args=self.get_compiler_args(),
             model_init_kwargs=model_init_kwargs,
         )
         self.models.append(self.context_encoding_model)
@@ -526,7 +525,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
             neuron_config=new_neuron_config,
             model_cls=self._model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
-            compiler_args=self.get_compiler_args(),
             priority_model_idx=0
             if enable_wlt_optimization
             else None,  # to turn on weight layout optimization
@@ -887,3 +885,36 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
         if not self.token_generation_model.is_neuron():
             for i, kv_tensor in enumerate(self.token_generation_model.model.past_key_values):
                 self.token_generation_model.model.past_key_values[i] = torch.zeros_like(kv_tensor)
+
+    def get_compiler_args(self):
+        tensorizer_options = (
+            "--enable-ccop-compute-overlap "
+            f"--cc-pipeline-tiling-factor={self.neuron_config.cc_pipeline_tiling_factor} "
+            "--vectorize-dge-dma "
+            "--vectorize-strided-dma "
+        )
+
+        compiler_args = (
+            "--auto-cast=none --model-type=transformer "
+            f"--tensorizer-options='{tensorizer_options}'"
+            " -O1 "
+            f" --internal-num-neuroncores-per-sengine={self.neuron_config.logical_neuron_cores}"
+        )
+
+        if self.neuron_config.target:
+            compiler_args += f" --target {self.neuron_config.target}"
+
+        if (
+            (
+                self.neuron_config.quantized is True
+                and self.neuron_config.quantization_dtype == "f8e4m3"
+            )
+            or self.neuron_config.kv_cache_quant
+            or self.neuron_config.quantized_mlp_kernel_enabled
+        ):
+            compiler_args += (
+                " --internal-hlo2tensorizer-options='--experimental-unsafe-fp8e4m3fn-as-fp8e4m3' "
+            )
+
+        logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
+        return compiler_args

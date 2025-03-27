@@ -90,7 +90,7 @@ class NeuronApplicationBase(torch.nn.Module):
                 key=model.tag,
                 model_instance=model.get_model_instance(),
                 example_inputs=model.input_generator(),
-                compiler_args=model.compiler_args,
+                compiler_args=self.get_compiler_args(),
                 bucket_config=model.get_bucket_config(),
                 priority_model_idx=model.priority_model_idx,
             )

@@ -6,11 +6,10 @@ from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 
 class NxDModelWrapper(torch.nn.Module):
-    def __init__(self, tag: str, priority_model_idx: int, compiler_args: str):
+    def __init__(self, tag: str, priority_model_idx: int):
         super().__init__()
         self.tag = tag
         self.priority_model_idx = priority_model_idx
-        self.compiler_args = compiler_args
 
     @abstractmethod
     def input_generator(self) -> List[torch.Tensor]:
