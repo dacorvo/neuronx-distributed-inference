@@ -18,8 +18,7 @@ inference_demo  --model-type llama --task-type causal-lm run \
                 --pad-token-id 128001 \
                 --prompt "The color of the sky is"
 # Generated outputs:
-# Output 0: The color of the sky is blue, but what about the color of the sky at night?
-# Is it blue? No, it's not blue. The color of the sky at night is actually a deep shade of indigo or purple,
-# depending on the time of year and atmospheric conditions.
-#
-#The color of the sky is determined by the way
+# Output 0: The color of the sky is blue because of a phenomenon called Rayleigh scattering,
+# named after the British physicist Lord Rayleigh, who first described it in the late 19th century.
+# Rayleigh scattering is the scattering of light by small particles or molecules in the atmosphere,
+# such as nitrogen and oxygen molecules. When sunlight enters the Earth's atmosphere, it encounters
