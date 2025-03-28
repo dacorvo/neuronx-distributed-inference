@@ -627,7 +627,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
 
-        outputs, is_run_on_neuron = self._get_model_outputs(
+        logits_or_next_tokens = self._get_model_outputs(
             input_ids,
             attention_mask,
             position_ids,
@@ -636,16 +636,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
             prev_hidden,
             llava_args,
         )
-
-        if self.neuron_config.trace_tokengen_model and not self.token_generation_model.is_neuron():
-            self._copy_past_key_values(outputs)
-
-        if is_run_on_neuron:
-            # When run on neuron, KV cache remains on device
-            logits_or_next_tokens = outputs
-        else:
-            # When run on cpu, KV cache is returned which has to be ignored
-            logits_or_next_tokens, *_ = outputs
 
         logging.debug("---output---")
         logging.debug(
@@ -688,25 +678,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
         attention_mask = (position_ids_to_compare >= mask).to(dtype=position_ids.dtype)
         return attention_mask
 
-    def _log_input(
-        self, input_ids, attention_mask, position_ids, seq_ids, **kwargs
-    ):
-        logging.debug("---input---")
-        logging.debug("input_ids shape = %s type=%s", input_ids.shape, input_ids.type())
-        logging.debug(
-            "attention_mask shape = %s type=%s", attention_mask.shape, attention_mask.type()
-        )
-        logging.debug("position_ids shape = %s type=%s", position_ids.shape, position_ids.type())
-        logging.debug("input_ids =%s", input_ids)
-        logging.debug("attention_mask =%s", attention_mask)
-        logging.debug("position_ids =%s", position_ids)
-        logging.debug(f"seq_ids: {seq_ids}")
-
-        if self.neuron_config.trace_tokengen_model and not self.token_generation_model.is_neuron():
-            logging.debug(
-                f"first layer kv_cache: {self.token_generation_model.model.past_key_values[0][:, 0, :, 0]}"
-            )
-
     def _get_async_output(
         self,
         ranked_async_tensor,
@@ -742,7 +713,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
             )
 
             self.kv_cache_populated = True
-            is_run_on_neuron = self.context_encoding_model.is_neuron()
             if self.async_mode:
                 if not self.unequal_batching:
                     # for now only cte + tkg flow is supported with async (this will be enforced at config level)
@@ -773,7 +743,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
                 sampling_params,
                 prev_hidden,
             )
-            is_run_on_neuron = self.speculation_model.is_neuron()
         else:
             if (
                 self.next_cpu_inputs is not None and self.prior_outputs is not None
@@ -818,22 +787,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
             else:
                 outputs = next_outputs
 
-            is_run_on_neuron = self.token_generation_model.is_neuron()
-
-        return outputs, is_run_on_neuron
-
-    def _copy_kv_cache(self, source_model, target_model):
-        for source, target in zip(source_model.model.models, target_model.model.models):
-            encoder_kv_cache_line = source.states
-            token_gen_kv_cache_line = target.states
-            for name, _ in token_gen_kv_cache_line._parameters.items():
-                token_gen_kv_cache_line._parameters[name] = encoder_kv_cache_line._parameters[name]
-
-    def _copy_past_key_values(self, outputs):
-        new_past_key_values = outputs[1:]
-        for i, new_past_key_value in enumerate(new_past_key_values):
-            self.token_generation_model.model.past_key_values[i].data = new_past_key_value
-            self.context_encoding_model.model.past_key_values[i].data = new_past_key_value
+        return outputs
 
     def _construct_output(self, logits_or_next_tokens):
         next_tokens = logits_or_next_tokens
@@ -848,18 +802,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
 
         return OutputParams
 
-    @staticmethod
-    def _reorder_cache(past_key_values, beam_idx):
-        reordered_past = ()
-        for layer_past in past_key_values:
-            reordered_past += (
-                tuple(
-                    past_state.index_select(0, beam_idx.to(past_state.device))
-                    for past_state in layer_past
-                ),
-            )
-        return reordered_past
-
     def reset(self):
         # We need to reset the KV cache flag for a new batch of inference.
         # When the flag is reset, the subsequent run will invoke the
@@ -869,17 +811,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
     def get_required_kwargs(self) -> List[str]:
         """The list of required kwargs to the model's forward"""
         return []
-
-    def reset_kv_cache(self):
-        # Zero out kv cache for debug.
-        # For new batch inference, use reset() instead
-        if not self.context_encoding_model.is_neuron():
-            for i, kv_tensor in enumerate(self.context_encoding_model.model.past_key_values):
-                self.context_encoding_model.model.past_key_values[i] = torch.zeros_like(kv_tensor)
-
-        if not self.token_generation_model.is_neuron():
-            for i, kv_tensor in enumerate(self.token_generation_model.model.past_key_values):
-                self.token_generation_model.model.past_key_values[i] = torch.zeros_like(kv_tensor)
 
     def get_compiler_args(self):
         tensorizer_options = (

@@ -101,9 +101,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self.model_init_kwargs = model_init_kwargs
         self.async_mode = self.neuron_config.async_mode
 
-    def is_neuron(self):
-        return self.model is not None and isinstance(self.model, torch.jit.ScriptModule)
-
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
         self.model = self.model_cls(self.config, self.neuron_config)
         self.model.load_state_dict(state_dict, strict=strict, assign=assign)
@@ -203,12 +200,8 @@ class NxDDecoderWrapper(NxDModelWrapper):
         outputs = self._forward(*padded_args)
 
         # note that we don't do index select here as it should already be handled, simply sliced out padding here
-        if self.is_neuron():
-            logits = outputs
-            return logits[: seq_ids.shape[0]]
-        else:
-            logits, *kv_cache = outputs
-            return [logits[: seq_ids.shape[0]], *kv_cache]
+        logits = outputs
+        return logits[: seq_ids.shape[0]]
 
     def _forward(self, *args):
         logging.debug(f"Processed inputs to the model. tag={self.tag}, args={args}")
@@ -288,26 +281,16 @@ class NxDDecoderWrapper(NxDModelWrapper):
                 )
                 outputs = self._forward_with_pad(*[arg[cur_batch:input_batch_size] for arg in args])
 
-            if self.is_neuron():
-                logits = outputs
-            else:
-                logits, *kv_caches = outputs
-                for i, kv_cache in enumerate(kv_caches):
-                    self.model.kv_mgr.past_key_values[i].data = kv_cache
-
-            output_logits.append(logits)
+            output_logits.append(outputs)
             cur_batch += self.neuron_config.batch_size
 
-        if self.is_neuron():
-            if self.async_mode:
-                # block on all requests here, since this is output manipulation
-                output_logits = [
-                    self._get_async_output(ranked_logits) for ranked_logits in output_logits
-                ]
+        if self.async_mode:
+            # block on all requests here, since this is output manipulation
+            output_logits = [
+                self._get_async_output(ranked_logits) for ranked_logits in output_logits
+            ]
 
-            return torch.cat(output_logits, dim=0)
-        else:
-            return [torch.cat(output_logits, dim=0), *kv_caches]
+        return torch.cat(output_logits, dim=0)
 
 
 class DecoderModelInstance(BaseModelInstance):
