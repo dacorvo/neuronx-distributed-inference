@@ -184,9 +184,6 @@ class NxDDecoderModel(nn.Module):
         position_ids,
         seq_ids,
         sampling_params,
-        prev_hidden=None,
-        accepted_indices=None,
-        current_length=None,
         scatter_index=None,
         # In llava context encoding model, input_embeds is precomputed
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -264,7 +261,6 @@ class NxDDecoderModel(nn.Module):
             past_key_values=past_key_values,
             active_mask=active_mask,
             inputs_embeds=inputs_embeds,
-            prev_hidden=prev_hidden,
         )
 
         if kv_cache is None:
@@ -356,7 +352,6 @@ class NxDDecoderModel(nn.Module):
         active_mask: Optional[List[torch.FloatTensor]] = None,
         # In llava context encoding model, input_embeds is precomputed
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        prev_hidden: Optional[torch.FloatTensor] = None,
     ):
         batch_size, seq_length = input_ids.shape[:2]
 
