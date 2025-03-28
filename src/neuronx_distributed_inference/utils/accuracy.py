@@ -5,11 +5,8 @@ Some of the utitlies functions need to be redo or removed.
 """
 # flake8: noqa
 
-import warnings
-from contextlib import nullcontext
 from typing import Union
 
-import torch
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
 from neuronx_distributed_inference.utils.constants import *
