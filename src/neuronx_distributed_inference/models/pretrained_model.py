@@ -64,7 +64,7 @@ class NxDPreTrainedModel(torch.nn.Module):
             )
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self.models: List[NxDModelWrapper] = []
-        self.traced_model = None
+        self._traced_model = None
         self.is_loaded_to_neuron = False
 
     def get_builder(self, debug=False, checkpoint_loader=None):
@@ -113,18 +113,17 @@ class NxDPreTrainedModel(torch.nn.Module):
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None
 
-    def compile(self, compiled_model_path, debug=False):
-        compiled_model_path = normalize_path(compiled_model_path)
-
-        """Compiles this model and saves it to the given path."""
-        self.config.save_pretrained(compiled_model_path)
-        self.neuron_config.save(compiled_model_path)
-
+    def compile(self, debug=False):
         builder = self.get_builder(debug)
+        self._traced_model = builder.trace(initialize_model_weights=False)
 
-        traced_model = builder.trace(initialize_model_weights=False)
-        torch.jit.save(traced_model, compiled_model_path + COMPILED_MODEL_FILE_NAME)
-        del traced_model
+    def save(self, dest_path):
+        if self._traced_model is None:
+            raise ValueError("Model has not been compiled or loaded")
+        dest_path = normalize_path(dest_path)
+        self.config.save_pretrained(dest_path)
+        self.neuron_config.save(dest_path)
+        torch.jit.save(self._traced_model, dest_path + COMPILED_MODEL_FILE_NAME)
 
     def shard_checkpoint(self, src_path, dest_path, debug=False):
         shards_path = get_shards_path(dest_path)
@@ -142,9 +141,9 @@ class NxDPreTrainedModel(torch.nn.Module):
         weight_path = normalize_path(weight_path)
 
         """Loads the compiled model checkpoint to the Neuron device."""
-        self.traced_model = torch.jit.load(compiled_model_path + COMPILED_MODEL_FILE_NAME)
+        self._traced_model = torch.jit.load(compiled_model_path + COMPILED_MODEL_FILE_NAME)
 
-        self.load_weights(
+        self._load_weights(
             weight_path, start_rank_id=start_rank_id, local_ranks_size=local_ranks_size
         )
 
@@ -152,14 +151,14 @@ class NxDPreTrainedModel(torch.nn.Module):
             self.to(self.neuron_config.torch_dtype)
 
         for model_wrapper in self.models:
-            model_wrapper.model = self.traced_model
+            model_wrapper.model = self._traced_model
         self.is_loaded_to_neuron = True
 
-    def load_weights(self, weights_path, start_rank_id=None, local_ranks_size=None):
+    def _load_weights(self, weights_path, start_rank_id=None, local_ranks_size=None):
         weights_path = normalize_path(weights_path)
 
         """Loads the model weights to the Neuron device."""
-        if self.traced_model is None:
+        if self._traced_model is None:
             raise ValueError("Model is not loaded")
 
         if start_rank_id is None:
@@ -192,7 +191,7 @@ class NxDPreTrainedModel(torch.nn.Module):
                 )
                 weights.append(ckpt)
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
-        self.traced_model.nxd_model.initialize(weights, start_rank_tensor)
+        self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
 
     def checkpoint_loader_fn(self, checkpoint_path, config, neuron_config):
         """This function loads the model's state dictionary and weights from the hf model"""
