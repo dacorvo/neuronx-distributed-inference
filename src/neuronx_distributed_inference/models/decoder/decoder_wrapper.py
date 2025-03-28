@@ -152,9 +152,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
     def get_bucket_config(self):
         return get_bucket_model_config_from_tag(self.tag, self.config, self.neuron_config)
 
-    def _forward_with_pad(self, *args):
-        seq_ids = args[3]
-        sampling_params = args[4]
+    def _forward_with_pad(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
 
         # pad the inputs up to the compiled batch size in the end
         def pad_helper(tensor, pad_type="zeros"):
@@ -177,8 +175,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
             return padded_tensor
 
         padded_args = []
-        # pad input_ids, attn_mask and position_ids
-        for arg in args[0:3]:
+        for arg in (input_ids, attention_mask, position_ids):
             padded_args.append(pad_helper(arg, pad_type="repeat_first_batchline"))
 
         # need to handle seq_ids separately, when compiled batch is 4, if we pad seq_ids from [0,2,1] to [0,2,1,
@@ -203,9 +200,8 @@ class NxDDecoderWrapper(NxDModelWrapper):
         logits = outputs
         return logits[: seq_ids.shape[0]]
 
-    def _forward(self, *args):
-        logging.debug(f"Processed inputs to the model. tag={self.tag}, args={args}")
-        return self.model(*args)
+    def _forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
+        return self.model(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
 
     def convert_int64_to_int32(self, *args):
         """
@@ -236,28 +232,15 @@ class NxDDecoderWrapper(NxDModelWrapper):
         outputs = [[async_tensor[0].cpu()] for async_tensor in ranked_async_tensor]
         return outputs[0][0]
 
-    def forward(self, *args):
-        logging.debug(f"calling forward on network {self.tag}")
+    def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
 
-        if self.model is None:
-            raise RuntimeError(
-                "Forward called before load. Run load() or load_state_dict() making calling forward"
-            )
-
-        # remove hidden state if None
-        # This is hacky and is being fixed
-        if args[5] is None:
-            args = (*args[:5], *args[6:])
-
-        args = self.convert_int64_to_int32(*args)
-        args = self.pad_to_max_compiled_seq(*args)
-
-        seq_ids = args[3]
+        input_ids, attention_mask, position_ids, seq_ids = self.convert_int64_to_int32(input_ids, attention_mask, position_ids, seq_ids)
+        input_ids, attention_mask, position_ids, seq_ids = self.pad_to_max_compiled_seq(input_ids, attention_mask, position_ids, seq_ids)
 
         input_batch_size = seq_ids.shape[0]
 
         if input_batch_size == self.neuron_config.batch_size:
-            return self._forward(*args)
+            return self._forward(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
 
         cur_batch = 0
         output_logits = []
@@ -265,6 +248,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
         logging.debug(
             f"get input_batch_size as {input_batch_size} but compiled batch_size as {self.neuron_config.batch_size}"
         )
+        args = (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
         while cur_batch < input_batch_size:
             if cur_batch + self.neuron_config.batch_size <= input_batch_size:
                 # we only process part of the input to run

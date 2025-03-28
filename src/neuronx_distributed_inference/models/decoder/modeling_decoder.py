@@ -571,16 +571,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
 
     def forward(
         self,
-        input_ids: torch.LongTensor = None,
+        input_ids: torch.LongTensor,
+        position_ids: Optional[torch.LongTensor],
         seq_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
         sampling_params: Optional[torch.FloatTensor] = None,
-        prev_hidden: Optional[torch.FloatTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        llava_args: Optional[List] = [],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         if self.async_mode:
@@ -622,8 +620,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
             position_ids,
             seq_ids,
             sampling_params,
-            prev_hidden,
-            llava_args,
         )
 
         logging.debug("---output---")
@@ -681,8 +677,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
         position_ids,
         seq_ids,
         sampling_params,
-        prev_hidden,
-        llava_args,
     ):
         # casting inputs to int32
         input_ids = input_ids.to(torch.int32)
@@ -697,8 +691,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
                 position_ids,
                 seq_ids,
                 sampling_params,
-                prev_hidden,
-                *llava_args,
             )
 
             self.kv_cache_populated = True
@@ -711,7 +703,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
                         self.next_cpu_inputs["position_ids"],
                         seq_ids,
                         sampling_params,
-                        *llava_args,
                     )
                     outputs = self._get_async_output(outputs)  # block on cte call
                     self.prior_outputs = next_outputs
@@ -730,7 +721,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
                 position_ids,
                 seq_ids,
                 sampling_params,
-                prev_hidden,
             )
         else:
             if (
@@ -750,8 +740,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
                 _position_ids,
                 seq_ids,
                 sampling_params,
-                prev_hidden,
-                *llava_args,
             )
             if self.async_mode:
                 if (
@@ -764,7 +752,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
                         self.next_cpu_inputs["position_ids"],
                         seq_ids,
                         sampling_params,
-                        *llava_args,
                     )
                 outputs = self.prior_outputs
                 if isinstance(outputs, list):

@@ -160,13 +160,10 @@ class NxDGenerationMixin(GenerationMixin):
     def prepare_inputs_for_generation(
         self,
         input_ids,
-        past_key_values=None,
         attention_mask=None,
-        inputs_embeds=None,
         sampling_params=None,
         **kwargs,
     ):
-        # Store KV cache flag before forward pass.
         if self.kv_cache_populated:
             input_ids = input_ids[:, -1:]
 
@@ -179,21 +176,12 @@ class NxDGenerationMixin(GenerationMixin):
                 position_ids = torch.amax(position_ids, 1, keepdim=True)
                 position_ids = position_ids + 1
 
-        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and past_key_values is None:
-            model_inputs = {"inputs_embeds": inputs_embeds}
-        else:
-            model_inputs = {"input_ids": input_ids}
-
-        model_inputs.update(
-            {
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "use_cache": kwargs.get("use_cache", False),
-                "attention_mask": attention_mask,
-                "sampling_params": sampling_params,
-            }
-        )
+        model_inputs = {
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+            "attention_mask": attention_mask,
+            "sampling_params": sampling_params,
+        }
 
         # WARNING: This is needed for propagating additional kwargs to the neuron model
         additional_kwargs = self.get_required_kwargs()
