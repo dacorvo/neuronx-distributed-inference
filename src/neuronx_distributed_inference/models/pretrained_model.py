@@ -40,7 +40,7 @@ def get_shards_path(dest_path):
     return os.path.join(dest_path, "weights")
 
 
-class NeuronApplicationBase(torch.nn.Module):
+class NxDPreTrainedModel(torch.nn.Module):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""

@@ -8,7 +8,7 @@ import torch
 from neuronx_distributed.quantization.quantization_config import QuantizationType
 from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 
-from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
+from neuronx_distributed_inference.models.pretrained_model import NxDPreTrainedModel
 from neuronx_distributed_inference.models.config import (
     OnDeviceSamplingConfig,
     to_torch_dtype,
@@ -163,7 +163,7 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     )
 
 
-def run_inference(model_cls: Type[NeuronApplicationBase], args):
+def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     # Initialize configs.
     print("Loading configs...")
 

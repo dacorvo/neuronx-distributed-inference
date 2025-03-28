@@ -18,7 +18,6 @@ from torch import nn
 from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
 from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.modules.attention import utils as attn_utils
 from neuronx_distributed_inference.modules.autobucketing import generate_buckets
@@ -40,6 +39,7 @@ from neuronx_distributed_inference.modules.kvcache.kv_cache_manager import (
 )
 from neuronx_distributed_inference.utils.random import set_random_seed
 
+from ..pretrained_model import NxDPreTrainedModel
 from .decoder_wrapper import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,
     SPECULATION_MODEL_TAG,
@@ -426,7 +426,7 @@ class NxDDecoderModel(nn.Module):
         return (hidden_states, next_decoder_cache)
 
 
-class NxDModelForCausalLM(NxDGenerationMixin, NeuronApplicationBase):
+class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel):
     _model_cls = None
 
     def __init__(

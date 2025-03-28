@@ -8,7 +8,6 @@ from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.modeling_outputs import ModelOutput
 
-from neuronx_distributed_inference.models.application_base import NeuronApplicationBase
 from neuronx_distributed_inference.models.config import (
     NeuronConfig,
     OnDeviceSamplingConfig,
@@ -20,7 +19,7 @@ from neuronx_distributed_inference.modules.generation.sampling import (
 
 
 class NxDGenerationMixin(GenerationMixin):
-    """A generation Mixin that can be used to extend NeuronApplicationBase based classes
+    """A generation Mixin that can be used to extend NxDPreTrainedModel based classes
     """
 
     # These are expected to be set by the GenerationMixin code
@@ -29,7 +28,7 @@ class NxDGenerationMixin(GenerationMixin):
     _supports_cache_class = False
 
     def __init__(self, config, neuron_config):
-        # Call the next constructor, which should be a child of NeuronApplicationBase
+        # Call the next constructor, which should be a child of NxDPretrainedModel
         super().__init__(config, neuron_config)
         # Initialize default generation config
         self.generation_config = GenerationConfig.from_model_config(self.config)
