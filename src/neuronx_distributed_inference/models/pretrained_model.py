@@ -15,7 +15,7 @@ from neuronx_distributed.quantization.quantization_utils import (
 )
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
-from transformers import PretrainedConfig
+from transformers import AutoModelForCausalLM, PretrainedConfig
 
 from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.models.model_wrapper import NxDModelWrapper
@@ -346,7 +346,7 @@ class NxDPreTrainedModel(torch.nn.Module):
     @staticmethod
     def load_hf_model(model_path):
         """Loads the HuggingFace model from the given checkpoint path."""
-        raise NotImplementedError("load_hf_model is not implemented")
+        return AutoModelForCausalLM.from_pretrained(model_path)
 
     @staticmethod
     def update_state_dict_for_tied_weights(state_dict):

@@ -26,7 +26,7 @@ from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, ParallelEmbedding
 from torch import nn
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
-from transformers.models.mixtral.modeling_mixtral import MixtralConfig, MixtralForCausalLM, MixtralRMSNorm
+from transformers.models.mixtral.modeling_mixtral import MixtralConfig, MixtralRMSNorm
 
 from neuronx_distributed_inference.models.config import MoENeuronConfig
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
@@ -253,10 +253,6 @@ class NeuronMixtralForCausalLM(NxDModelForCausalLM):
     """
 
     _model_cls = NeuronMixtralModel
-
-    @staticmethod
-    def load_hf_model(model_path):
-        return MixtralForCausalLM.from_pretrained(model_path)
 
     @classmethod
     def get_neuron_config_cls(cls):

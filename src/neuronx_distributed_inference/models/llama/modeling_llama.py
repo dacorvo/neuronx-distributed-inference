@@ -52,7 +52,6 @@ from neuronxcc.nki._private_kernels.rmsnorm import rmsnorm_quant_isa_kernel
 from neuronxcc.nki.language import nc
 from torch import nn
 from torch_neuronx.xla_impl.ops import nki_jit
-from transformers import LlamaForCausalLM
 from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
 
@@ -725,10 +724,6 @@ class NeuronLlamaForCausalLM(NxDModelForCausalLM):
     """
 
     _model_cls = NeuronLlamaModel
-
-    @staticmethod
-    def load_hf_model(model_path):
-        return LlamaForCausalLM.from_pretrained(model_path)
 
     @staticmethod
     def convert_hf_to_neuron_state_dict(state_dict: dict, config: LlamaConfig, neuron_config: NeuronConfig) -> dict:
