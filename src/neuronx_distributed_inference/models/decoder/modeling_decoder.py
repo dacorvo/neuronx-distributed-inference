@@ -800,7 +800,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel):
             "--auto-cast=none --model-type=transformer "
             f"--tensorizer-options='{tensorizer_options}'"
             " -O1 "
-            f" --internal-num-neuroncores-per-sengine={self.neuron_config.logical_neuron_cores}"
+            f" --internal-num-neuroncores-per-sengine={self.neuron_config.logical_nc_config}"
         )
 
         if self.neuron_config.target:

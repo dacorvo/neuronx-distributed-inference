@@ -179,7 +179,7 @@ class NeuronConfig:
                 self.quantized_mlp_kernel_enabled
             ), "quantized_mlp_kernel must be enabled to use rmsomrm_quantize_kernel!"
         self.quantized_kernel_lower_bound = kwargs.pop("quantized_kernel_lower_bound", 1200.0)
-        self.logical_neuron_cores = kwargs.pop("logical_neuron_cores", 1)
+        self.logical_nc_config = kwargs.pop("logical_nc_config", 1)
 
         # compiler flags
         self.cc_pipeline_tiling_factor = kwargs.pop("cc_pipeline_tiling_factor", 2)

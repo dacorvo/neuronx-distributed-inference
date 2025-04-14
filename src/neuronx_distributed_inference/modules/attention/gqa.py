@@ -327,7 +327,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
         rms_norm_eps: float = None,
         qkv_kernel_enabled: bool = False,
-        logical_neuron_cores: int = 1,
+        logical_nc_config: int = 1,
     ):
         super().__init__(
             hidden_size=hidden_size,
@@ -353,7 +353,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         self.sequence_dimension = sequence_dimension
         self.rms_norm_eps = rms_norm_eps
         self.qkv_kernel_enabled = qkv_kernel_enabled
-        self.logical_neuron_cores = logical_neuron_cores
+        self.logical_nc_config = logical_nc_config
 
         if self.tensor_model_parallel_group is not None:
             if self.fused_qkv:
@@ -486,7 +486,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
 
     def _kernel_qkv_forward(self, hidden_states, fused_rmsnorm, rmsnorm):
         logger.debug(
-            f"QKV kernel: fused_rmsnorm={fused_rmsnorm} logical_neuron_cores={self.logical_neuron_cores}"
+            f"QKV kernel: fused_rmsnorm={fused_rmsnorm} logical_nc_config={self.logical_nc_config}"
         )
         bs, seqlen, h = hidden_states.shape
 
@@ -512,7 +512,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             device=hidden_states.device,
         )
 
-        grid = (vnc(self.logical_neuron_cores),)
+        grid = (vnc(self.logical_nc_config),)
 
         # the QKV kernel will automatically switch to the TKG QKV if seqlen==1
         _traced_qkv_kernel[grid](

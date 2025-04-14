@@ -124,7 +124,7 @@ class NeuronAttentionBase(nn.Module):
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rms_norm_eps=self.rms_norm_eps,
             qkv_kernel_enabled=neuron_config.qkv_kernel_enabled,
-            logical_neuron_cores=neuron_config.logical_neuron_cores,
+            logical_nc_config=neuron_config.logical_nc_config,
         )
         self.o_proj = GroupQueryAttention_O(
             hidden_size=self.hidden_size,
@@ -149,7 +149,7 @@ class NeuronAttentionBase(nn.Module):
         self.q_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
         self.k_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
         self.attn_kernel_enabled = neuron_config.attn_kernel_enabled
-        self.logical_neuron_cores = neuron_config.logical_neuron_cores
+        self.logical_nc_config = neuron_config.logical_nc_config
 
     def scaled_qk(self, Q, K, attention_mask):
         QK = torch.matmul(Q, K.transpose(2, 3)) / math.sqrt(self.head_dim)
@@ -200,7 +200,7 @@ class NeuronAttentionBase(nn.Module):
         logger.debug(f"Flash attention strategy: {flash_attn_strategy}")
 
         if flash_attn_strategy != FlashAttentionStrategy.NONE:
-            logger.debug(f"ATTN kernel: logical_neuron_cores={self.logical_neuron_cores}")
+            logger.debug(f"ATTN kernel: logical_nc_config={self.logical_nc_config}")
             # if we are using left padding, then the bzs needs be 1 (otherwise we get wrong result
             # because flash attention does not use attention_mask). In practice, we use right
             # padding so this is unlikely to cause issues
@@ -238,7 +238,7 @@ class NeuronAttentionBase(nn.Module):
             logger.debug(f"Attn output shape {attn_output.shape}")
 
             if flash_attn_strategy == FlashAttentionStrategy.SHARDED_KERNEL:
-                grid = (vnc(self.logical_neuron_cores),)
+                grid = (vnc(self.logical_nc_config),)
 
                 _flash_fwd_call[grid](
                     Q,
@@ -289,7 +289,7 @@ class NeuronAttentionBase(nn.Module):
         TODO: Throw an exception instead of disabling flash attention if explicitly enabled but not eligible.
               This must consider bucketing to avoid throwing an exception for smaller buckets.
         """
-        if int(self.logical_neuron_cores) > 1:
+        if int(self.logical_nc_config) > 1:
             if q_len < 1024:
                 return FlashAttentionStrategy.NONE
 

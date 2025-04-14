@@ -82,7 +82,7 @@ class NxDPreTrainedModel(torch.nn.Module):
             compiler_workdir=base_compile_work_dir,
             debug=debug,
             num_cores_per_group=self.neuron_config.num_cores_per_group,
-            logical_neuron_cores=self.neuron_config.logical_neuron_cores,
+            logical_nc_config=self.neuron_config.logical_nc_config,
             weights_to_skip_layout_optimization=self.neuron_config.weights_to_skip_layout_optimization,
         )
         for model in self.models:

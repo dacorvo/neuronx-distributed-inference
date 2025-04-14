@@ -124,7 +124,7 @@ class NeuronLlamaMLP(nn.Module):
         self.quantized_mlp_kernel_enabled = neuron_config.quantized_mlp_kernel_enabled
         self.rmsnorm_quantize_kernel_enabled = neuron_config.rmsnorm_quantize_kernel_enabled
         self.quantized_kernel_lower_bound = neuron_config.quantized_kernel_lower_bound
-        self.logical_neuron_cores = neuron_config.logical_neuron_cores
+        self.logical_nc_config = neuron_config.logical_nc_config
         mlp_bias = getattr(config, "mlp_bias", False)
         if parallel_state.model_parallel_is_initialized():
             if self.quantized_mlp_kernel_enabled:
@@ -220,10 +220,10 @@ class NeuronLlamaMLP(nn.Module):
             self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=mlp_bias)
 
     def _kernel_enabled_quantized_mlp(self, x, fused_rmsnorm, rmsnorm, residual):
-        grid = (vnc(self.logical_neuron_cores),)
+        grid = (vnc(self.logical_nc_config),)
         fused_residual = residual is not None
         logger.debug(
-            f"MLP: quantized kernel, fused_residual={fused_residual}, fused_rmsnorm={fused_rmsnorm}, logical_neuron_cores={self.logical_neuron_cores}"
+            f"MLP: quantized kernel, fused_residual={fused_residual}, fused_rmsnorm={fused_rmsnorm}, logical_nc_config={self.logical_nc_config}"
         )
 
         # Can't do residual add in the kernel if SP is enabled
@@ -354,7 +354,7 @@ class NeuronLlamaMLP(nn.Module):
     def _kernel_enabled_mlp(self, x, fused_rmsnorm, rmsnorm, residual):
         fused_residual = residual is not None
         logger.debug(
-            f"MLP: kernel, fused_residual={fused_residual}, fused_rmsnorm={fused_rmsnorm}, logical_neuron_cores={self.logical_neuron_cores}"
+            f"MLP: kernel, fused_residual={fused_residual}, fused_rmsnorm={fused_rmsnorm}, logical_nc_config={self.logical_nc_config}"
         )
 
         # Choose which kernel to call
@@ -394,7 +394,7 @@ class NeuronLlamaMLP(nn.Module):
         up_w = self.up_proj.weight.data
         down_w = self.down_proj.weight.data
 
-        grid = (vnc(self.logical_neuron_cores),)
+        grid = (vnc(self.logical_nc_config),)
 
         if fused_residual:
             _mlp_fwd_call[grid](
