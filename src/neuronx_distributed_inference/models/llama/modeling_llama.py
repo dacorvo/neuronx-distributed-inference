@@ -49,7 +49,7 @@ from neuronxcc.nki._private_kernels.mlp import (
     quant_mlp_isa_kernel,
 )
 from neuronxcc.nki._private_kernels.rmsnorm import rmsnorm_quant_isa_kernel
-from neuronxcc.starfish.penguin.targets.nki.private_api import vnc
+from neuronxcc.nki.language import nc
 from torch import nn
 from torch_neuronx.xla_impl.ops import nki_jit
 from transformers import LlamaForCausalLM
@@ -220,7 +220,7 @@ class NeuronLlamaMLP(nn.Module):
             self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=mlp_bias)
 
     def _kernel_enabled_quantized_mlp(self, x, fused_rmsnorm, rmsnorm, residual):
-        grid = (vnc(self.logical_nc_config),)
+        grid = (nc(self.logical_nc_config),)
         fused_residual = residual is not None
         logger.debug(
             f"MLP: quantized kernel, fused_residual={fused_residual}, fused_rmsnorm={fused_rmsnorm}, logical_nc_config={self.logical_nc_config}"
@@ -394,7 +394,7 @@ class NeuronLlamaMLP(nn.Module):
         up_w = self.up_proj.weight.data
         down_w = self.down_proj.weight.data
 
-        grid = (vnc(self.logical_nc_config),)
+        grid = (nc(self.logical_nc_config),)
 
         if fused_residual:
             _mlp_fwd_call[grid](

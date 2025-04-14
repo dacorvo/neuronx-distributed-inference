@@ -29,7 +29,7 @@ from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.parallel_state import get_kv_shared_group
-from neuronxcc.starfish.penguin.targets.nki.private_api import vnc
+from neuronxcc.nki.language import nc
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 from .gqa import GQA, GroupQueryAttention_O, GroupQueryAttention_QKV  # noqa: E402
@@ -238,7 +238,7 @@ class NeuronAttentionBase(nn.Module):
             logger.debug(f"Attn output shape {attn_output.shape}")
 
             if flash_attn_strategy == FlashAttentionStrategy.SHARDED_KERNEL:
-                grid = (vnc(self.logical_nc_config),)
+                grid = (nc(self.logical_nc_config),)
 
                 _flash_fwd_call[grid](
                     Q,

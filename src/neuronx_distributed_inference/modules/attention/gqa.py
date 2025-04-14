@@ -9,7 +9,7 @@ from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_pa
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
 from neuronx_distributed.quantization.quantization_layers import BaseQuantizeParallelLinear
 from neuronxcc.nki._private_kernels.qkv import rmsnorm_qkv_isa_kernel
-from neuronxcc.starfish.penguin.targets.nki.private_api import vnc
+from neuronxcc.nki.language import nc
 from torch import nn
 from torch.distributed import ProcessGroup
 from torch.nn import functional as F
@@ -512,7 +512,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             device=hidden_states.device,
         )
 
-        grid = (vnc(self.logical_nc_config),)
+        grid = (nc(self.logical_nc_config),)
 
         # the QKV kernel will automatically switch to the TKG QKV if seqlen==1
         _traced_qkv_kernel[grid](
