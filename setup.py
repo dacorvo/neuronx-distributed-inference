@@ -23,7 +23,7 @@ setup(
     package_data={"": []},
     install_requires=[
         "neuronx_distributed",
-        "transformers==4.48.*",
+        "transformers==4.49.*",
         "sentencepiece",
         "torchvision",
         "pillow",
