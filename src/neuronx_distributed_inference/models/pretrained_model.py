@@ -40,7 +40,7 @@ def get_shards_path(dest_path):
     return os.path.join(dest_path, "weights")
 
 
-class NxDPreTrainedModel(torch.nn.Module):
+class NxDPreTrainedModel():
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
@@ -50,8 +50,6 @@ class NxDPreTrainedModel(torch.nn.Module):
         config: PretrainedConfig,
         neuron_config: NeuronConfig,
     ):
-        super().__init__()
-
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
@@ -146,9 +144,6 @@ class NxDPreTrainedModel(torch.nn.Module):
         self._load_weights(
             weight_path, start_rank_id=start_rank_id, local_ranks_size=local_ranks_size
         )
-
-        if self.neuron_config.torch_dtype != torch.float32:
-            self.to(self.neuron_config.torch_dtype)
 
         for model_wrapper in self.models:
             model_wrapper.model = self._traced_model
