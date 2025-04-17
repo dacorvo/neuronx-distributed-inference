@@ -65,30 +65,31 @@ class NxDPreTrainedModel():
         self._traced_model = None
         self.is_loaded_to_neuron = False
 
-    def get_builder(self, debug=False, checkpoint_loader=None):
+    @staticmethod
+    def get_builder(neuron_config, model_wrappers: List[NxDModelWrapper], debug=False, checkpoint_loader=None, compiler_args: str = None):
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
 
         builder = ModelBuilder(
             router=None,
-            tp_degree=self.neuron_config.tp_degree,
-            pp_degree=self.neuron_config.pp_degree,
-            ep_degree=self.neuron_config.ep_degree,
-            world_size=self.neuron_config.world_size,
-            start_rank_id=self.neuron_config.start_rank_id,
-            local_ranks_size=self.neuron_config.local_ranks_size,
+            tp_degree=neuron_config.tp_degree,
+            pp_degree=neuron_config.pp_degree,
+            ep_degree=neuron_config.ep_degree,
+            world_size=neuron_config.world_size,
+            start_rank_id=neuron_config.start_rank_id,
+            local_ranks_size=neuron_config.local_ranks_size,
             checkpoint_loader=checkpoint_loader,
             compiler_workdir=base_compile_work_dir,
             debug=debug,
-            num_cores_per_group=self.neuron_config.num_cores_per_group,
-            logical_nc_config=self.neuron_config.logical_nc_config,
-            weights_to_skip_layout_optimization=self.neuron_config.weights_to_skip_layout_optimization,
+            num_cores_per_group=neuron_config.num_cores_per_group,
+            logical_nc_config=neuron_config.logical_nc_config,
+            weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
         )
-        for model in self.models:
+        for model in model_wrappers:
             builder.add(
                 key=model.tag,
                 model_instance=model.get_model_instance(),
                 example_inputs=model.input_generator(),
-                compiler_args=self.get_compiler_args(),
+                compiler_args=compiler_args,
                 bucket_config=model.get_bucket_config(),
                 priority_model_idx=model.priority_model_idx,
             )
@@ -112,7 +113,12 @@ class NxDPreTrainedModel():
         return None
 
     def compile(self, debug=False):
-        builder = self.get_builder(debug)
+        builder = self.get_builder(
+            self.neuron_config,
+            self.models,
+            debug=debug,
+            compiler_args=self.get_compiler_args()
+        )
         self._traced_model = builder.trace(initialize_model_weights=False)
 
     def save(self, dest_path):
@@ -126,7 +132,13 @@ class NxDPreTrainedModel():
     def shard_checkpoint(self, src_path, dest_path, debug=False):
         shards_path = get_shards_path(dest_path)
         checkpoint_loader = partial(self.checkpoint_loader_fn, src_path, self.config, self.neuron_config)
-        builder = self.get_builder(debug, checkpoint_loader=checkpoint_loader)
+        builder = self.get_builder(
+            self.neuron_config,
+            self.models,
+            debug=debug,
+            checkpoint_loader=checkpoint_loader,
+            compiler_args=self.get_compiler_args()
+        )
         builder.shard_checkpoint(serialize_path=shards_path)
 
         if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
@@ -177,7 +189,13 @@ class NxDPreTrainedModel():
         else:
             print("There are no saved sharded checkpoints.")
             checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
-            builder = self.get_builder(checkpoint_loader=checkpoint_loader)
+            builder = self.get_builder(
+                self.neuron_config,
+                self.models,
+                debug=False,
+                checkpoint_loader=checkpoint_loader,
+                compiler_args=self.get_compiler_args()
+            )
             source_model_key = list(builder.model_collection.keys())[0]
             for rank in range(start_rank_id, start_rank_id + local_ranks_size):
                 print(f"Sharding and loading rank {rank}")
