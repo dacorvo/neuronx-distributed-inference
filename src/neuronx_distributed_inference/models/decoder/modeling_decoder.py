@@ -861,6 +861,4 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         )
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
-        raise NotImplementedError(
-            "The `save_pretrained` method is yet to be implemented."
-        )
+        return self.save(save_directory)

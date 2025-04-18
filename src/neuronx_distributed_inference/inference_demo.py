@@ -210,11 +210,11 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
         print("\nCompiling and saving model...")
         compiling_start_time = time.monotonic()
         model.compile(debug=args.hlo_debug)
-        model.save(args.compiled_model_path)
+        model.save_pretrained(args.compiled_model_path)
         if draft_model is not None:
             print("\nCompiling and saving draft model...")
             draft_model.compile(debug=args.hlo_debug)
-            draft_model.save(args.compiled_draft_model_path)
+            draft_model.save_pretrained(args.compiled_draft_model_path)
         compiling_end_time = time.monotonic()
         total_compiling_time = compiling_end_time - compiling_start_time
         print(f"Compiling and tracing time: {total_compiling_time} seconds")
