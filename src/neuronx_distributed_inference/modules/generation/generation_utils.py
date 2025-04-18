@@ -27,11 +27,11 @@ class NxDGenerationMixin(GenerationMixin):
     _is_stateful = False
     _supports_cache_class = False
 
-    def __init__(self, config, neuron_config):
-        # Call the next constructor, which should be a child of NxDPretrainedModel
-        super().__init__(config, neuron_config)
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+        assert hasattr(self, "neuron_config") # Must be set by the super class
         # Initialize default generation config
-        self.generation_config = GenerationConfig.from_model_config(self.config)
+        self.generation_config = GenerationConfig.from_model_config(config)
         self.sampler = None
 
     def can_generate(self):

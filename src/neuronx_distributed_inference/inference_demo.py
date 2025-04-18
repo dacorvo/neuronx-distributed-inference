@@ -185,9 +185,8 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
 
         config = AutoConfig.from_pretrained(args.model_path)
 
-    # Initialize draft model.
-    draft_model = None
-    if neuron_config.speculation_length > 0 and args.draft_model_path is not None:
+    do_speculate = args.speculation_length is not None and args.speculation_length > 0 and args.draft_model_path is not None
+    if do_speculate:
         # Reset speculation options to defaults for the draft model.
         draft_neuron_config = copy.deepcopy(neuron_config)
         draft_neuron_config.speculation_length = 0
@@ -197,11 +196,7 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
             draft_neuron_config.tp_degree = args.draft_model_tp_degree
 
         draft_config = AutoConfig.from_pretrained(args.draft_model_path)
-        draft_model = model_cls(draft_config, draft_neuron_config)
 
-    model = model_cls(config, neuron_config)
-
-    # Quantize model.
     if neuron_config.quantized:
         model_cls.save_quantized_state_dict(args.model_path, config, neuron_config)
 
@@ -209,23 +204,21 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     if not args.skip_compile:
         print("\nCompiling and saving model...")
         compiling_start_time = time.monotonic()
-        model.compile(debug=args.hlo_debug)
-        model.save_pretrained(args.compiled_model_path)
-        if draft_model is not None:
-            print("\nCompiling and saving draft model...")
-            draft_model.compile(debug=args.hlo_debug)
-            draft_model.save_pretrained(args.compiled_draft_model_path)
+        model = model_cls.export(args.model_path, config, neuron_config)
         compiling_end_time = time.monotonic()
-        total_compiling_time = compiling_end_time - compiling_start_time
-        print(f"Compiling and tracing time: {total_compiling_time} seconds")
-        if args.save_sharded_checkpoint:
-            print("\nSharding and saving weights ...")
-            sharding_start_time = time.monotonic()
-            model.shard_checkpoint(args.model_path, args.compiled_model_path)
-            if draft_model is not None:
-                draft_model.shard_checkpoint(args.draft_model_path, args.compiled_draft_model_path)
-            sharding_end_time = time.monotonic()
-            print(f"Sharding and saving time: {sharding_end_time - sharding_start_time} seconds")
+        print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
+        model.save_pretrained(args.compiled_model_path)
+        saving_end_time = time.monotonic()
+        print(f"Saving time: {saving_end_time - compiling_end_time} seconds")
+        if do_speculate:
+            print("\nCompiling and saving draft model...")
+            compiling_start_time = time.monotonic()
+            draft_model = model_cls.export(args.draft_model_path, draft_config, draft_neuron_config)
+            compiling_end_time = time.monotonic()
+            print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
+            draft_model.save_pretrained(args.compiled_draft_model_path)
+            saving_end_time = time.monotonic()
+            print(f"Saving time: {saving_end_time - compiling_end_time} seconds")
         if args.compile_only:
             return
 
@@ -235,16 +228,14 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     # Load compiled model to Neuron.
     print("\nLoading model to Neuron...")
     loading_start_time = time.monotonic()
-    weight_path = args.compiled_model_path if neuron_config.save_sharded_checkpoint else args.model_path
-    model.load(args.compiled_model_path, weight_path)
+    model = model_cls.from_pretrained(args.compiled_model_path)
     loading_end_time = time.monotonic()
     model_loading_time = loading_end_time - loading_start_time
     print(f"Total model loading time: {model_loading_time} seconds")
 
-    if draft_model is not None:
+    if do_speculate:
         print("\nLoading draft model to Neuron...")
-        draft_weight_path = args.compiled_draft_model_path if draft_neuron_config.save_sharded_checkpoint else args.draft_model_path
-        draft_model.load(args.compiled_draft_model_path, draft_weight_path)
+        draft_model = model_cls.from_pretrained(args.compiled_draft_model_path)
 
     if args.enable_torch_dist:
         torch.distributed.barrier()
@@ -273,7 +264,7 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
         tokenizer,
         args.prompts,
         generation_config,
-        draft_model=draft_model,
+        draft_model=draft_model if do_speculate else None,
         max_new_tokens=args.max_new_tokens
     )
 

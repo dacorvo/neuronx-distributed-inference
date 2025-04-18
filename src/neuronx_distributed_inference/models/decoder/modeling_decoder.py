@@ -52,6 +52,9 @@ from .decoder_wrapper import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402
 )
 
 
+logger = logging.getLogger("Neuron")
+
+
 class NxDDecoderModel(nn.Module):
     """
     Base model that NeuronXXXModel classes inherit from.
@@ -435,9 +438,23 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
     def __init__(
             self,
-            config: PretrainedConfig = None,
-            neuron_config: NeuronConfig = None):
-        super().__init__(config=config, neuron_config=neuron_config)
+            config: PretrainedConfig,
+            neuron_config: NeuronConfig,
+            traced_model: torch.jit.ScriptModule,
+            context_encoding_model: NxDDecoderWrapper,
+            token_generation_model: NxDDecoderWrapper = None,
+            speculation_model: NxDDecoderWrapper = None,):
+
+        self.context_encoding_model = context_encoding_model
+        self.token_generation_model = token_generation_model
+        self.speculation_model = speculation_model
+        # Model wrappers are used by the parent class to assign weights to the model.
+        model_wrappers = [self.context_encoding_model]
+        if self.token_generation_model is not None:
+            model_wrappers.append(self.token_generation_model)
+        if self.speculation_model is not None:
+            model_wrappers.append(self.speculation_model)
+        super().__init__(config=config, neuron_config=neuron_config, traced_model=traced_model, model_wrappers=model_wrappers)
 
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
@@ -459,19 +476,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             batch_size=self.neuron_config.batch_size, top_k=[1], top_p=[1.0], temperature=[1.0]
         )
 
-        self.enable_context_encoding()
-        if self.neuron_config.trace_tokengen_model:
-            self.enable_token_generation()
-        if self.neuron_config.speculation_length > 0:
-            self.enable_speculation()
-
-    def get_model_wrapper_cls(self):
-        return NxDDecoderWrapper
-
-    def enable_context_encoding(self, **model_init_kwargs):
-        new_neuron_config = copy.deepcopy(self.neuron_config)
-        new_neuron_config.batch_size = self.neuron_config.ctx_batch_size
-        new_neuron_config.n_active_tokens = self.neuron_config.max_context_length
+    @staticmethod
+    def create_context_encoding_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
+        new_neuron_config = copy.deepcopy(neuron_config)
+        new_neuron_config.batch_size = neuron_config.ctx_batch_size
+        new_neuron_config.n_active_tokens = neuron_config.max_context_length
         new_neuron_config.bucket_n_active_tokens = True
 
         if not new_neuron_config.enable_bucketing:
@@ -487,78 +496,99 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                     128, new_neuron_config.max_context_length
                 )
 
-        self.context_encoding_model = NxDDecoderWrapper(
-            config=self.config,
+        return NxDDecoderWrapper(
+            config=config,
             neuron_config=new_neuron_config,
-            model_cls=self._model_cls,
+            model_cls=model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
             model_init_kwargs=model_init_kwargs,
         )
-        self.models.append(self.context_encoding_model)
 
-    def enable_token_generation(self, enable_wlt_optimization: bool = True, **model_init_kwargs):
-        new_neuron_config = copy.deepcopy(self.neuron_config)
-        new_neuron_config.batch_size = self.neuron_config.tkg_batch_size
+    @staticmethod
+    def create_token_generation_wrapper(model_cls, config, neuron_config, enable_wlt_optimization: bool = True, **model_init_kwargs):
+        new_neuron_config = copy.deepcopy(neuron_config)
+        new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = 1
         new_neuron_config.bucket_n_active_tokens = False
         new_neuron_config.sequence_parallel_enabled = False
 
         if not new_neuron_config.enable_bucketing:
             new_neuron_config.buckets = generate_buckets(
-                self.neuron_config.max_length, self.neuron_config.max_length
+                neuron_config.max_length, neuron_config.max_length
             )
         else:
             if new_neuron_config.token_generation_buckets is not None:
                 new_neuron_config.buckets = new_neuron_config.token_generation_buckets
             else:
                 new_neuron_config.buckets = generate_buckets(
-                    128, self.neuron_config.max_length
+                    128, neuron_config.max_length
                 )
 
         # shouldn't be used in token gen models
         new_neuron_config.sequence_parallel_enabled = False
 
-        self.token_generation_model = NxDDecoderWrapper(
-            config=self.config,
+        return NxDDecoderWrapper(
+            config=config,
             neuron_config=new_neuron_config,
-            model_cls=self._model_cls,
+            model_cls=model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
             priority_model_idx=0
             if enable_wlt_optimization
             else None,  # to turn on weight layout optimization
             model_init_kwargs=model_init_kwargs,
         )
-        self.models.append(self.token_generation_model)
 
-    def enable_speculation(self):
-        new_neuron_config = copy.deepcopy(self.neuron_config)
-        new_neuron_config.batch_size = self.neuron_config.spec_batch_size
-        new_neuron_config.n_active_tokens = self.neuron_config.speculation_length
+    @staticmethod
+    def create_speculation_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
+        new_neuron_config = copy.deepcopy(neuron_config)
+        new_neuron_config.batch_size = neuron_config.spec_batch_size
+        new_neuron_config.n_active_tokens = neuron_config.speculation_length
         new_neuron_config.bucket_n_active_tokens = False
 
         new_neuron_config.sequence_parallel_enabled = False
 
         if not new_neuron_config.enable_bucketing:
             new_neuron_config.buckets = generate_buckets(
-                self.neuron_config.max_length, self.neuron_config.max_length
+                neuron_config.max_length, neuron_config.max_length
             )
         else:
             if new_neuron_config.token_generation_buckets is not None:
                 new_neuron_config.buckets = new_neuron_config.token_generation_buckets
             else:
                 new_neuron_config.buckets = generate_buckets(
-                    128, self.neuron_config.max_length
+                    128, neuron_config.max_length
                 )
 
-        self.speculation_model = NxDDecoderWrapper(
-            config=self.config,
+        return NxDDecoderWrapper(
+            config=config,
             neuron_config=new_neuron_config,
-            model_cls=self._model_cls,
+            model_cls=model_cls,
             tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization
+            model_init_kwargs=model_init_kwargs,
         )
 
-        self.models.append(self.speculation_model)
+    @staticmethod
+    def create_model_wrappers(model_cls, config, neuron_config, **model_init_kwargs):
+        context_encoding_model = NxDModelForCausalLM.create_context_encoding_wrapper(
+                model_cls,
+                config,
+                neuron_config,
+                **model_init_kwargs,
+            )
+        token_generation_model = NxDModelForCausalLM.create_token_generation_wrapper(
+                    model_cls,
+                    config,
+                    neuron_config,
+                    **model_init_kwargs,
+                ) if neuron_config.trace_tokengen_model else None
+        speculation_model = NxDModelForCausalLM.create_speculation_wrapper(
+                model_cls,
+                config,
+                neuron_config,
+                **model_init_kwargs,
+            ) if neuron_config.speculation_length > 0 else None
+        return context_encoding_model, token_generation_model, speculation_model
 
     @classmethod
     def prepare_quantized_state_dict(cls, hf_model_quant):
@@ -791,10 +821,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         """The list of required kwargs to the model's forward"""
         return []
 
-    def get_compiler_args(self):
+    @classmethod
+    def get_compiler_args(cls, neuron_config: NeuronConfig) -> str:
         tensorizer_options = (
             "--enable-ccop-compute-overlap "
-            f"--cc-pipeline-tiling-factor={self.neuron_config.cc_pipeline_tiling_factor} "
+            f"--cc-pipeline-tiling-factor={neuron_config.cc_pipeline_tiling_factor} "
             "--vectorize-dge-dma "
             "--vectorize-strided-dma "
         )
@@ -803,19 +834,19 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             "--auto-cast=none --model-type=transformer "
             f"--tensorizer-options='{tensorizer_options}'"
             " -O1 "
-            f" --internal-num-neuroncores-per-sengine={self.neuron_config.logical_nc_config}"
+            f" --internal-num-neuroncores-per-sengine={neuron_config.logical_nc_config}"
         )
 
-        if self.neuron_config.target:
-            compiler_args += f" --target {self.neuron_config.target}"
+        if neuron_config.target:
+            compiler_args += f" --target {neuron_config.target}"
 
         if (
             (
-                self.neuron_config.quantized is True
-                and self.neuron_config.quantization_dtype == "f8e4m3"
+                neuron_config.quantized is True
+                and neuron_config.quantization_dtype == "f8e4m3"
             )
-            or self.neuron_config.kv_cache_quant
-            or self.neuron_config.quantized_mlp_kernel_enabled
+            or neuron_config.kv_cache_quant
+            or neuron_config.quantized_mlp_kernel_enabled
         ):
             compiler_args += (
                 " --internal-hlo2tensorizer-options='--experimental-unsafe-fp8e4m3fn-as-fp8e4m3' "
@@ -825,13 +856,37 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return compiler_args
 
     # NeuronModelForCausalLM methods
+    @classmethod
     def _from_pretrained(
         cls,
         model_id: Union[str, "Path"],
         config: "PretrainedConfig",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        raise NotImplementedError
+        neuron_config = cls.get_neuron_config_cls().load(model_id)
+        context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
+            model_cls=cls._model_cls,
+            config=config,
+            neuron_config=neuron_config,
+            **kwargs,
+        )
+        traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
+        model = cls(
+            config=config,
+            neuron_config=neuron_config,
+            traced_model=traced_model,
+            context_encoding_model=context_encoding_model,
+            token_generation_model=token_generation_model,
+            speculation_model=speculation_model,
+        )
+        checkpoint_path = os.path.join(model_id, cls.CHECKPOINT_DIR)
+        if os.path.exists(checkpoint_path):
+            model._load_weights(checkpoint_path)
+        else:
+            logger.warning(
+                f"Checkpoint file {checkpoint_path} not found. Weights will not be loaded."
+            )
+        return model
 
     @classmethod
     def _get_neuron_config(
@@ -855,9 +910,40 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        raise NotImplementedError(
-            "The `export` method is yet to be implemented."
+        if not os.path.isdir(model_id):
+            raise ValueError(
+                f"Model directory {model_id} does not exist. Please provide a valid path."
+            )
+        # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
+        config.torch_dtype = neuron_config.torch_dtype
+        context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
+            model_cls=cls._model_cls,
+            config=config,
+            neuron_config=neuron_config,
+            **kwargs,
         )
+        model_wrappers = []
+        for wrapper in context_encoding_model, token_generation_model, speculation_model:
+            if wrapper is not None:
+                model_wrappers.append(wrapper)
+        traced_model = NxDPreTrainedModel.compile(
+            neuron_config=neuron_config,
+            model_wrappers=model_wrappers,
+            compiler_args=cls.get_compiler_args(neuron_config),
+        )
+        model = cls(
+            config=config,
+            neuron_config=neuron_config,
+            traced_model=traced_model,
+            context_encoding_model=context_encoding_model,
+            token_generation_model=token_generation_model,
+            speculation_model=speculation_model,
+        )
+        model._load_weights(model_id)
+        return model
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
-        return self.save(save_directory)
+        model_name_or_path = getattr(self.config, "_name_or_path")
+        # If the model was exported from a local path, we need to save the checkpoint (not that we also shard it)
+        weight_path = model_name_or_path if os.path.isdir(model_name_or_path) else None
+        self.save(save_directory, weight_path=weight_path)

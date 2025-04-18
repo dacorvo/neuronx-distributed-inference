@@ -3,7 +3,7 @@ import logging
 import os
 import warnings
 from functools import partial
-from typing import List
+from typing import List, Optional
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
@@ -26,7 +26,6 @@ from neuronx_distributed_inference.modules.checkpoint import (
 )
 from neuronx_distributed_inference.modules.flashdecode.utils import calculate_num_cores_per_group
 
-COMPILED_MODEL_FILE_NAME = "model.pt"
 logger = logging.getLogger("Neuron")
 
 
@@ -40,15 +39,65 @@ def get_shards_path(dest_path):
     return os.path.join(dest_path, "weights")
 
 
+def get_builder(neuron_config, model_wrappers: List[NxDModelWrapper], debug=False, checkpoint_loader=None, compiler_args: str = None):
+    """Creates a ModelBuilder instance for the given model wrappers.
+
+    This function initializes a ModelBuilder with the specified Neuron configuration and model wrappers.
+    It exists to provide a convenient way to create a ModelBuilder instance, and is called by the
+    `NxDPreTrainedModel` class every time a model is compiled or loaded.
+    The returned ModelBuilder instances are typically discarded after having been used to save memory.
+
+    Args:
+        neuron_config (NeuronConfig): The Neuron configuration.
+        model_wrappers (List[NxDModelWrapper]): The model wrappers to be added to the builder.
+        debug (bool): Whether to enable debug mode.
+        checkpoint_loader (callable): A function to load the model's state dictionary and weights.
+        compiler_args (str): Compiler arguments to be passed to the builder.
+    Returns:
+        ModelBuilder: The ModelBuilder instance.
+    """
+    base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
+
+    builder = ModelBuilder(
+        router=None,
+        tp_degree=neuron_config.tp_degree,
+        pp_degree=neuron_config.pp_degree,
+        ep_degree=neuron_config.ep_degree,
+        world_size=neuron_config.world_size,
+        start_rank_id=neuron_config.start_rank_id,
+        local_ranks_size=neuron_config.local_ranks_size,
+        checkpoint_loader=checkpoint_loader,
+        compiler_workdir=base_compile_work_dir,
+        debug=debug,
+        num_cores_per_group=neuron_config.num_cores_per_group,
+        logical_nc_config=neuron_config.logical_nc_config,
+        weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
+    )
+    for model in model_wrappers:
+        builder.add(
+            key=model.tag,
+            model_instance=model.get_model_instance(),
+            example_inputs=model.input_generator(),
+            compiler_args=compiler_args,
+            bucket_config=model.get_bucket_config(),
+            priority_model_idx=model.priority_model_idx,
+        )
+    return builder
+
+
 class NxDPreTrainedModel():
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
+    COMPILED_MODEL_FILE_NAME = "model.pt"
+    CHECKPOINT_DIR = "checkpoint"
 
     def __init__(
         self,
         config: PretrainedConfig,
         neuron_config: NeuronConfig,
+        traced_model: torch.jit.ScriptModule,
+        model_wrappers: List[NxDModelWrapper],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
@@ -61,39 +110,10 @@ class NxDPreTrainedModel():
                 config.num_attention_heads, config.num_key_value_heads, neuron_config.tp_degree
             )
         self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
-        self.models: List[NxDModelWrapper] = []
-        self._traced_model = None
-        self.is_loaded_to_neuron = False
-
-    @staticmethod
-    def get_builder(neuron_config, model_wrappers: List[NxDModelWrapper], debug=False, checkpoint_loader=None, compiler_args: str = None):
-        base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
-
-        builder = ModelBuilder(
-            router=None,
-            tp_degree=neuron_config.tp_degree,
-            pp_degree=neuron_config.pp_degree,
-            ep_degree=neuron_config.ep_degree,
-            world_size=neuron_config.world_size,
-            start_rank_id=neuron_config.start_rank_id,
-            local_ranks_size=neuron_config.local_ranks_size,
-            checkpoint_loader=checkpoint_loader,
-            compiler_workdir=base_compile_work_dir,
-            debug=debug,
-            num_cores_per_group=neuron_config.num_cores_per_group,
-            logical_nc_config=neuron_config.logical_nc_config,
-            weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
-        )
-        for model in model_wrappers:
-            builder.add(
-                key=model.tag,
-                model_instance=model.get_model_instance(),
-                example_inputs=model.input_generator(),
-                compiler_args=compiler_args,
-                bucket_config=model.get_bucket_config(),
-                priority_model_idx=model.priority_model_idx,
-            )
-        return builder
+        self._traced_model = traced_model
+        self.model_wrappers = model_wrappers # Required for loading weights
+        for model_wrapper in self.model_wrappers:
+            model_wrapper.model = self._traced_model
 
     def forward(self, **kwargs):
         """Forward pass for this model."""
@@ -108,99 +128,92 @@ class NxDPreTrainedModel():
     def get_neuron_config_cls(cls) -> NeuronConfig:
         raise NotImplementedError("get_neuron_config_cls is not implemented")
 
-    def get_compiler_args(self) -> str:
+    @classmethod
+    def get_compiler_args(cls, neuron_config) -> str:
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None
 
-    def compile(self, debug=False):
-        builder = self.get_builder(
-            self.neuron_config,
-            self.models,
-            debug=debug,
-            compiler_args=self.get_compiler_args()
-        )
-        self._traced_model = builder.trace(initialize_model_weights=False)
+    @staticmethod
+    def compile(neuron_config, model_wrappers: List[NxDModelWrapper], compiler_args: str, debug: bool = False):
 
-    def save(self, dest_path):
+        builder = get_builder(
+            neuron_config,
+            model_wrappers,
+            debug=debug,
+            compiler_args=compiler_args
+        )
+        return builder.trace(initialize_model_weights=False)
+
+    def save(self, dest_path, weight_path: Optional[str] = None):
         if self._traced_model is None:
             raise ValueError("Model has not been compiled or loaded")
         dest_path = normalize_path(dest_path)
         self.config.save_pretrained(dest_path)
         self.neuron_config.save(dest_path)
-        torch.jit.save(self._traced_model, dest_path + COMPILED_MODEL_FILE_NAME)
+        torch.jit.save(self._traced_model, dest_path + self.COMPILED_MODEL_FILE_NAME)
+        if weight_path is not None:
+            self.shard_checkpoint(
+                src_path=weight_path,
+                dest_path=os.path.join(dest_path, self.CHECKPOINT_DIR),
+            )
 
-    def shard_checkpoint(self, src_path, dest_path, debug=False):
+    def shard_checkpoint(self, src_path, dest_path, debug: bool = False):
         shards_path = get_shards_path(dest_path)
         checkpoint_loader = partial(self.checkpoint_loader_fn, src_path, self.config, self.neuron_config)
-        builder = self.get_builder(
+        sharder = get_builder(
             self.neuron_config,
-            self.models,
+            self.model_wrappers,
             debug=debug,
             checkpoint_loader=checkpoint_loader,
-            compiler_args=self.get_compiler_args()
+            compiler_args=self.get_compiler_args(self.neuron_config)
         )
-        builder.shard_checkpoint(serialize_path=shards_path)
+        sharder.shard_checkpoint(serialize_path=shards_path)
 
         if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
-            builder.transform_weight_layout_with_overriden_option(
+            sharder.transform_weight_layout_with_overriden_option(
                 sharded_checkpoint_dir=shards_path
             )
 
-    def load(self, compiled_model_path, weight_path, start_rank_id=None, local_ranks_size=None):
-        compiled_model_path = normalize_path(compiled_model_path)
-        weight_path = normalize_path(weight_path)
-
-        """Loads the compiled model checkpoint to the Neuron device."""
-        self._traced_model = torch.jit.load(compiled_model_path + COMPILED_MODEL_FILE_NAME)
-
-        self._load_weights(
-            weight_path, start_rank_id=start_rank_id, local_ranks_size=local_ranks_size
-        )
-
-        for model_wrapper in self.models:
-            model_wrapper.model = self._traced_model
-        self.is_loaded_to_neuron = True
-
-    def _load_weights(self, weights_path, start_rank_id=None, local_ranks_size=None):
+    def _load_weights(self, weights_path):
         weights_path = normalize_path(weights_path)
 
         """Loads the model weights to the Neuron device."""
         if self._traced_model is None:
             raise ValueError("Model is not loaded")
 
-        if start_rank_id is None:
-            start_rank_id = self.neuron_config.start_rank_id
-        if local_ranks_size is None:
-            local_ranks_size = self.neuron_config.local_ranks_size
+        start_rank_id = self.neuron_config.start_rank_id
+        local_ranks_size = self.neuron_config.local_ranks_size
 
         logging.info(
             f"loading models for ranks {start_rank_id}...{start_rank_id + local_ranks_size - 1}"
         )
         weights = []
-        if self.neuron_config.save_sharded_checkpoint:
-            shards_path = get_shards_path(weights_path)
+        shards_path = get_shards_path(weights_path)
+        def get_shard_name(rank):
+            return os.path.join(
+                shards_path, f"tp{rank}_sharded_checkpoint.safetensors"
+            )
+        if os.path.exists(get_shard_name(start_rank_id)):
+            # If sharded checkpoints exist, load them
+            print(f"Loading sharded checkpoint from {shards_path}")
             for rank in range(start_rank_id, start_rank_id + local_ranks_size):
-                ckpt = load_file(
-                    os.path.join(
-                        shards_path, f"tp{rank}_sharded_checkpoint.safetensors"
-                    )
-                )
+                ckpt = load_file(get_shard_name(rank))
                 weights.append(ckpt)
         else:
             print("There are no saved sharded checkpoints.")
             checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
-            builder = self.get_builder(
+            sharder = get_builder(
                 self.neuron_config,
-                self.models,
+                self.model_wrappers,
                 debug=False,
                 checkpoint_loader=checkpoint_loader,
-                compiler_args=self.get_compiler_args()
+                compiler_args=self.get_compiler_args(self.neuron_config)
             )
-            source_model_key = list(builder.model_collection.keys())[0]
+            source_model_key = list(sharder.model_collection.keys())[0]
             for rank in range(start_rank_id, start_rank_id + local_ranks_size):
                 print(f"Sharding and loading rank {rank}")
-                ckpt = builder.shard_weights(
-                    rank, builder.model_collection[source_model_key]
+                ckpt = sharder.shard_weights(
+                    rank, sharder.model_collection[source_model_key]
                 )
                 weights.append(ckpt)
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")

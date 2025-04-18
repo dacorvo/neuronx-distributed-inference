@@ -262,14 +262,15 @@ class NeuronMixtralForCausalLM(NxDModelForCausalLM):
     def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralConfig, neuron_config: MoENeuronConfig) -> dict:
         return convert_mixtral_to_neuron_state_dict(state_dict, config, neuron_config)
 
-    def get_compiler_args(self):
+    @classmethod
+    def get_compiler_args(cls, neuron_config: MoENeuronConfig) -> str:
         compiler_args = "--enable-saturate-infinity --enable-mixed-precision-accumulation --model-type transformer -O1"
         # Add flags for cc-overlap
         compiler_args += (
             " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2'"
         )
         # Prevent auto-down casting when running with fp32
-        if self.neuron_config.torch_dtype == torch.float32:
+        if neuron_config.torch_dtype == torch.float32:
             compiler_args += " --auto-cast=none"
         # Enable vector-offset DGE
         compiler_args += " --internal-enable-dge-levels vector_dynamic_offsets"
