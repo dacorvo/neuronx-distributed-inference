@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import neuronx_distributed as nxd
@@ -17,6 +18,7 @@ from neuronx_distributed.quantization.quantization_utils import convert_qint8_to
 from torch import nn
 from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers.generation import GenerationConfig, StoppingCriteriaList
 
 from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.modules.attention import utils as attn_utils
@@ -38,6 +40,8 @@ from neuronx_distributed_inference.modules.kvcache.kv_cache_manager import (
     _slice_kv_cacheline,
 )
 from neuronx_distributed_inference.utils.random import set_random_seed
+
+from optimum.neuron import NeuronModelForCausalLM
 
 from ..pretrained_model import NxDPreTrainedModel
 from .decoder_wrapper import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
@@ -426,7 +430,7 @@ class NxDDecoderModel(nn.Module):
         return (hidden_states, next_decoder_cache)
 
 
-class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel):
+class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelForCausalLM):
     _model_cls = None
 
     def __init__(
@@ -820,3 +824,43 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel):
 
         logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
         return compiler_args
+
+    # NeuronModelForCausalLM methods
+    def _from_pretrained(
+        cls,
+        model_id: Union[str, "Path"],
+        config: "PretrainedConfig",
+        **kwargs,
+    ) -> "NeuronModelForCausalLM":
+        raise NotImplementedError
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        tensor_parallel_size: int,
+        auto_cast_type: str,
+    ):
+        raise NotImplementedError("The `get_neuron_config` method is yet to be implemented.")
+
+    @classmethod
+    def export(
+        cls,
+        model_id: str,
+        config: "PretrainedConfig",
+        neuron_config: "NeuronConfig",
+        token: Optional[Union[bool, str]] = None,
+        revision: Optional[str] = None,
+        **kwargs,
+    ) -> "NeuronModelForCausalLM":
+        raise NotImplementedError(
+            "The `export` method is yet to be implemented."
+        )
+
+    def _save_pretrained(self, save_directory: Union[str, Path]):
+        raise NotImplementedError(
+            "The `save_pretrained` method is yet to be implemented."
+        )
