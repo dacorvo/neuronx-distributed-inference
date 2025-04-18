@@ -458,7 +458,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self.default_sampling_params = prepare_sampling_params(
             batch_size=self.neuron_config.batch_size, top_k=[1], top_p=[1.0], temperature=[1.0]
         )
-        self.model_wrapper = self.get_model_wrapper_cls()
 
         self.enable_context_encoding()
         if self.neuron_config.trace_tokengen_model:
@@ -488,7 +487,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                     128, new_neuron_config.max_context_length
                 )
 
-        self.context_encoding_model = self.model_wrapper(
+        self.context_encoding_model = NxDDecoderWrapper(
             config=self.config,
             neuron_config=new_neuron_config,
             model_cls=self._model_cls,
@@ -519,7 +518,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # shouldn't be used in token gen models
         new_neuron_config.sequence_parallel_enabled = False
 
-        self.token_generation_model = self.model_wrapper(
+        self.token_generation_model = NxDDecoderWrapper(
             config=self.config,
             neuron_config=new_neuron_config,
             model_cls=self._model_cls,
@@ -551,7 +550,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                     128, self.neuron_config.max_length
                 )
 
-        self.speculation_model = self.model_wrapper(
+        self.speculation_model = NxDDecoderWrapper(
             config=self.config,
             neuron_config=new_neuron_config,
             model_cls=self._model_cls,
