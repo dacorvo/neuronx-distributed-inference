@@ -70,7 +70,7 @@ class NxDDecoderModel(nn.Module):
         self.kv_mgr = None
         self.neuron_config = neuron_config
         self.batch_size = neuron_config.batch_size
-        self.n_positions = neuron_config.n_positions
+        self.n_positions = neuron_config.seq_len
         self.vocab_size = config.vocab_size
         self.speculation_length = neuron_config.speculation_length
         self.padding_side = neuron_config.padding_side
@@ -687,7 +687,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         ), "need to call forward with position_ids if attention_mask is not provided"
         batch_size, seq_len = position_ids.shape
         if position_ids.shape[-1] == 1:
-            seq_len = self.neuron_config.n_positions
+            seq_len = self.neuron_config.seq_len
             position_ids_to_compare = position_ids.expand(batch_size, seq_len) - 1
         else:
             seq_len = position_ids.shape[-1]

@@ -66,10 +66,8 @@ class NeuronConfig:
             self.torch_dtype = to_torch_dtype(self.torch_dtype)
         # TODO: cleanup all parameters below
         self.padding_side = kwargs.pop("padding_side", "right")
-        # TODO: see if we can consolidate n_active_tokens and n_positions into one
         self.n_active_tokens = kwargs.pop("n_active_tokens", self.seq_len)
         # Need to provide example input shape for tracing
-        self.n_positions = kwargs.pop("n_positions", self.seq_len)
         self.output_logits = kwargs.pop("output_logits", False)
 
 
