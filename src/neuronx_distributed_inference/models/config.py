@@ -64,6 +64,7 @@ class NeuronConfig:
                  qkv_kernel_enabled: Optional[bool] = False,
                  mlp_kernel_enabled: Optional[bool] = False,
                  mlp_kernel_fuse_residual_add: Optional[bool] = False,
+                 enable_bucketing: Optional[bool] = False,
                  **kwargs) -> None:
         # Basic config for inference in NxD
         self.batch_size = batch_size
@@ -112,21 +113,7 @@ class NeuronConfig:
         self.async_mode = kwargs.pop("async", False)
 
         # Bucketing
-        self.enable_bucketing = kwargs.pop("enable_bucketing", False)
-        self.buckets = kwargs.pop("buckets", [self.seq_len])
-        self.bucket_n_active_tokens = kwargs.pop("bucket_n_active_tokens", False)
-        self.context_encoding_buckets = kwargs.pop("context_encoding_buckets", None)
-        self.token_generation_buckets = kwargs.pop("token_generation_buckets", None)
-        if self.context_encoding_buckets is not None:
-            self.context_encoding_buckets.sort()
-            assert (
-                self.context_encoding_buckets[-1] <= self.max_context_length
-            ), f"Context bucket {self.context_encoding_buckets[-1]} should be <= {self.max_context_length}"
-        if self.token_generation_buckets is not None:
-            self.token_generation_buckets.sort()
-            assert (
-                self.token_generation_buckets[-1] <= self.seq_len
-            ), f"Token generation bucket {self.token_generation_buckets[-1]} should be <= {self.seq_len}"
+        self.enable_bucketing = enable_bucketing
 
         # Speculative decoding
         self.trace_tokengen_model = kwargs.pop("trace_tokengen_model", True)

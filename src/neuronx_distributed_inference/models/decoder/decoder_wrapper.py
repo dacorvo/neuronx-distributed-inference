@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import List
 
 import torch
 import torch.nn.functional as F
@@ -21,8 +22,8 @@ TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
 
 
-def get_bucket_model_config_from_tag(tag, config: PretrainedConfig, neuron_config: NeuronConfig):
-    bucket_degree = len(neuron_config.buckets)
+def get_bucket_model_config_from_tag(tag, config: PretrainedConfig, neuron_config: NeuronConfig, buckets: List[int]):
+    bucket_degree = len(buckets)
     if bucket_degree == 1:
         return None
 
@@ -35,7 +36,7 @@ def get_bucket_model_config_from_tag(tag, config: PretrainedConfig, neuron_confi
         return BucketModelConfig(
             bucket_kernel=get_context_encoder_bk,
             bucket_kernel_constant_args=(
-                torch.tensor(neuron_config.buckets),
+                torch.tensor(buckets),
                 neuron_config.padding_side,
                 pad_token,
             ),
@@ -49,7 +50,7 @@ def get_bucket_model_config_from_tag(tag, config: PretrainedConfig, neuron_confi
         return BucketModelConfig(
             bucket_kernel=get_generation_model_bk,
             bucket_kernel_constant_args=(
-                torch.tensor(neuron_config.buckets),
+                torch.tensor(buckets),
                 neuron_config.padding_side,
                 0,
             ),
@@ -67,6 +68,8 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self,
         config: PretrainedConfig,
         neuron_config: NeuronConfig,
+        buckets: List[int],
+        bucket_n_active_tokens: bool,
         model_cls,
         tag="",
         priority_model_idx: int = None,
@@ -75,6 +78,8 @@ class NxDDecoderWrapper(NxDModelWrapper):
         super().__init__(tag, priority_model_idx)
         self.config = config
         self.neuron_config = neuron_config
+        self.buckets = buckets
+        self.bucket_n_active_tokens = bucket_n_active_tokens
 
         if not self.neuron_config.torch_dtype:
             self.neuron_config.torch_dtype = torch.float32
@@ -102,10 +107,10 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self,
     ):
         inputs = []
-        for bucket in self.neuron_config.buckets:
+        for bucket in self.buckets:
             n_active_tokens = (
                 bucket
-                if self.neuron_config.bucket_n_active_tokens
+                if self.bucket_n_active_tokens
                 else self.neuron_config.n_active_tokens
             )
 
@@ -139,11 +144,12 @@ class NxDDecoderWrapper(NxDModelWrapper):
             model_cls=self.model_cls,
             config=self.config,
             neuron_config=self.neuron_config,
+            buckets=self.buckets,
             **self.model_init_kwargs,
         )
 
     def get_bucket_config(self):
-        return get_bucket_model_config_from_tag(self.tag, self.config, self.neuron_config)
+        return get_bucket_model_config_from_tag(self.tag, self.config, self.neuron_config, self.buckets)
 
     def _forward_with_pad(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
 
@@ -271,12 +277,13 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
 
 class DecoderModelInstance(BaseModelInstance):
-    def __init__(self, model_cls, config: PretrainedConfig, neuron_config: NeuronConfig, **kwargs):
+    def __init__(self, model_cls, config: PretrainedConfig, neuron_config: NeuronConfig, buckets: List[int], **kwargs):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None
         self.config = config
         self.neuron_config = neuron_config
+        self.buckets = buckets
         self.kwargs = kwargs if kwargs is not None else {}
 
     def initialize_process_group(self, world_size):
@@ -296,7 +303,7 @@ class DecoderModelInstance(BaseModelInstance):
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
-            self.module.n_positions = self.neuron_config.buckets[bucket_rank]
+            self.module.n_positions = self.buckets[bucket_rank]
 
         # Currently we have to init an input_output_aliases map for
         # each buckets, otherwise it will fail the aliasing setup when

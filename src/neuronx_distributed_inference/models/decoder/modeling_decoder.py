@@ -479,24 +479,22 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.ctx_batch_size
         new_neuron_config.n_active_tokens = neuron_config.max_context_length
-        new_neuron_config.bucket_n_active_tokens = True
 
-        if not new_neuron_config.enable_bucketing:
-            new_neuron_config.buckets = generate_buckets(
+        if new_neuron_config.enable_bucketing:
+            buckets = generate_buckets(
+                128, new_neuron_config.max_context_length
+            )
+        else:
+            buckets = generate_buckets(
                 new_neuron_config.max_context_length,
                 new_neuron_config.max_context_length,
             )
-        else:
-            if new_neuron_config.context_encoding_buckets is not None:
-                new_neuron_config.buckets = new_neuron_config.context_encoding_buckets
-            else:
-                new_neuron_config.buckets = generate_buckets(
-                    128, new_neuron_config.max_context_length
-                )
 
         return NxDDecoderWrapper(
             config=config,
             neuron_config=new_neuron_config,
+            buckets=buckets,
+            bucket_n_active_tokens=True,
             model_cls=model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
             model_init_kwargs=model_init_kwargs,
@@ -507,20 +505,16 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = 1
-        new_neuron_config.bucket_n_active_tokens = False
         new_neuron_config.sequence_parallel_enabled = False
 
-        if not new_neuron_config.enable_bucketing:
-            new_neuron_config.buckets = generate_buckets(
-                neuron_config.seq_len, neuron_config.seq_len
+        if new_neuron_config.enable_bucketing:
+            buckets = generate_buckets(
+                128, neuron_config.seq_len
             )
         else:
-            if new_neuron_config.token_generation_buckets is not None:
-                new_neuron_config.buckets = new_neuron_config.token_generation_buckets
-            else:
-                new_neuron_config.buckets = generate_buckets(
-                    128, neuron_config.seq_len
-                )
+            buckets = generate_buckets(
+                neuron_config.seq_len, neuron_config.seq_len
+            )
 
         # shouldn't be used in token gen models
         new_neuron_config.sequence_parallel_enabled = False
@@ -528,6 +522,8 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return NxDDecoderWrapper(
             config=config,
             neuron_config=new_neuron_config,
+            buckets=buckets,
+            bucket_n_active_tokens=False,
             model_cls=model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
             priority_model_idx=0
@@ -541,25 +537,23 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.spec_batch_size
         new_neuron_config.n_active_tokens = neuron_config.speculation_length
-        new_neuron_config.bucket_n_active_tokens = False
 
         new_neuron_config.sequence_parallel_enabled = False
 
-        if not new_neuron_config.enable_bucketing:
-            new_neuron_config.buckets = generate_buckets(
-                neuron_config.seq_len, neuron_config.seq_len
+        if new_neuron_config.enable_bucketing:
+            buckets = generate_buckets(
+                128, neuron_config.seq_len
             )
         else:
-            if new_neuron_config.token_generation_buckets is not None:
-                new_neuron_config.buckets = new_neuron_config.token_generation_buckets
-            else:
-                new_neuron_config.buckets = generate_buckets(
-                    128, neuron_config.seq_len
-                )
+            buckets = generate_buckets(
+                neuron_config.seq_len, neuron_config.seq_len
+            )
 
         return NxDDecoderWrapper(
             config=config,
             neuron_config=new_neuron_config,
+            buckets=buckets,
+            bucket_n_active_tokens=False,
             model_cls=model_cls,
             tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization
