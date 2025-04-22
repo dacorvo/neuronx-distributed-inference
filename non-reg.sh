@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 inference_demo  --model-type llama --task-type causal-lm run \
                 --model-path ./Llama-3.2-1B-Instruct/ \
                 --compiled-model-path Llama-3.2-1B-Instruct-traced \
@@ -13,7 +14,6 @@ inference_demo  --model-type llama --task-type causal-lm run \
                 --top-k 1 \
                 --do-sample \
                 --pad-token-id 128001 \
-                --skip-save-sharded-checkpoint \
                 --prompt "I believe the meaning of life is" \
                 --prompt "The color of the sky is"
 # Generated outputs:

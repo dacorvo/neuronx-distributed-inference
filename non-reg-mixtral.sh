@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 inference_demo  --model-type mixtral --task-type causal-lm run \
                 --model-path ./Mixtral-tiny/ \
                 --compiled-model-path Mixtral-tiny-traced \
