@@ -68,9 +68,6 @@ class NeuronConfig:
 
         # fallback to sequence_length is for compatibility with vllm
         self.max_context_length = kwargs.pop("max_context_length", self.seq_len)
-        self.max_new_tokens = kwargs.pop("max_new_tokens", self.seq_len - self.max_context_length)
-        if self.max_new_tokens == 0:
-            self.max_new_tokens = None
         self.max_length = kwargs.pop("max_length", self.seq_len)
 
         # Embedding Config
