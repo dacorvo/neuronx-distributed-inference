@@ -71,6 +71,9 @@ class NeuronConfig:
                  mlp_kernel_enabled: Optional[bool] = False,
                  mlp_kernel_fuse_residual_add: Optional[bool] = False,
                  enable_bucketing: Optional[bool] = False,
+                 target: Optional[str] = None, # Set to "trn2" for trn2
+                 logical_nc_config: Optional[int] = 1,
+                 cc_pipeline_tiling_factor: Optional[int] = 2,
                  **kwargs) -> None:
         # Basic config for inference in NxD
         self.batch_size = batch_size
@@ -155,9 +158,9 @@ class NeuronConfig:
         self.mlp_kernel_fuse_residual_add = mlp_kernel_fuse_residual_add
 
         # compiler flags
-        self.logical_nc_config = kwargs.pop("logical_nc_config", 1)
-        self.cc_pipeline_tiling_factor = kwargs.pop("cc_pipeline_tiling_factor", 2)
-        self.target = kwargs.pop("target", None)
+        self.logical_nc_config = logical_nc_config
+        self.cc_pipeline_tiling_factor = cc_pipeline_tiling_factor
+        self.target = target
 
         if kwargs:
             logging.warning(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
