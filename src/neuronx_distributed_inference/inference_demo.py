@@ -82,9 +82,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
 
     # Bucketing
     run_parser.add_argument("--enable-bucketing", action="store_true")
-    run_parser.add_argument("--bucket-n-active-tokens", action="store_true")
-    run_parser.add_argument("--context-encoding-buckets", nargs="+", type=int)
-    run_parser.add_argument("--token-generation-buckets", nargs="+", type=int)
 
     # MoE
     run_parser.add_argument("--capacity-factor", type=float)
@@ -103,7 +100,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--tp-degree", type=int)
     run_parser.add_argument("--pp-degree", type=int)
     run_parser.add_argument("--ep-degree", type=int)
-    run_parser.add_argument("--world-size", type=int)
     run_parser.add_argument("--start_rank_id", type=int)
     run_parser.add_argument("--local_ranks_size", type=int)
     run_parser.add_argument(
