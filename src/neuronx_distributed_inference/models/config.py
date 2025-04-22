@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Dict, List, Type, Union
+from typing import Dict, List, Type, Optional, Union
 
 import torch
 from neuronx_distributed.quantization.quantization_config import QuantizedDtype
@@ -44,25 +44,28 @@ class NeuronConfig:
     optimization/features in NxD.
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self,
+                 batch_size: Optional[int] = 1,
+                 seq_len: Optional[int] = 128,
+                 tp_degree: Optional[int] = 1,
+                 torch_dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
+                 **kwargs) -> None:
         # Basic config for inference in NxD
-        self.batch_size = kwargs.pop("batch_size", 1)
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        self.tp_degree = tp_degree
+        self.torch_dtype = torch_dtype
+        if isinstance(self.torch_dtype, str):
+            self.torch_dtype = to_torch_dtype(self.torch_dtype)
+        # TODO: cleanup all parameters below
         self.padding_side = kwargs.pop("padding_side", "right")
         # TODO: see if we can consolidate n_active_tokens and n_positions into one
-        self.seq_len = kwargs.pop("seq_len", 128)
         self.n_active_tokens = kwargs.pop("n_active_tokens", self.seq_len)
         # Need to provide example input shape for tracing
         self.n_positions = kwargs.pop("n_positions", self.seq_len)
         self.on_cpu = kwargs.pop("on_cpu", False)
         self.output_logits = kwargs.pop("output_logits", False)
 
-        # Torch dtype
-        if "torch_dtype" in kwargs:
-            self.torch_dtype = kwargs.pop("torch_dtype")
-            if isinstance(self.torch_dtype, str):
-                self.torch_dtype = to_torch_dtype(self.torch_dtype)
-        else:
-            self.torch_dtype = torch.bfloat16
 
         self.rpl_reduce_dtype = kwargs.pop("rpl_reduce_dtype", self.torch_dtype)
 
@@ -136,7 +139,6 @@ class NeuronConfig:
         self.is_chunked_prefill = kwargs.pop("is_chunked_prefill", False)
 
         # Distributed config
-        self.tp_degree = kwargs.pop("tp_degree", 1)
         self.pp_degree = kwargs.pop("pp_degree", 1)
         self.ep_degree = kwargs.pop("ep_degree", 1)
         self.save_sharded_checkpoint = kwargs.pop("save_sharded_checkpoint", True)
