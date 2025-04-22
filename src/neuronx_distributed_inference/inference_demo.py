@@ -112,9 +112,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
         help="Use torch.distributed (gloo) backend when running multi-node examples. "
         "This is useful for ensuring processes on different nodes are in sync",
     )
-    run_parser.add_argument(
-        "--skip-save-sharded-checkpoint", dest="save_sharded_checkpoint", action="store_false"
-    )
 
     # async
     run_parser.add_argument("--async", action="store_true")

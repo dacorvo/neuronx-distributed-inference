@@ -134,7 +134,6 @@ class NeuronConfig:
         # Distributed config
         self.pp_degree = pp_degree
         self.ep_degree = ep_degree
-        self.save_sharded_checkpoint = kwargs.pop("save_sharded_checkpoint", True)
 
         # QK layer normalization
         self.qk_layernorm = qk_layernorm
