@@ -153,11 +153,6 @@ class NeuronConfig:
         self.flash_decoding_enabled = flash_decoding_enabled
         self.num_cores_per_group = 1
 
-        # KV Cache tiling optimizations
-        #   Tiling the sequence dimension of the KV cache enables specific
-        #   compiler optimizations like cascaded reductions
-        self.kv_cache_tiling = False
-
         # Kernels
         self.attn_kernel_enabled = attn_kernel_enabled
         self.qkv_kernel_enabled = qkv_kernel_enabled

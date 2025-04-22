@@ -56,7 +56,7 @@ class KVCacheManager(nn.Module):
         self.num_kv_head = kwargs["num_kv_head"]
 
         # NOTE: Tiling the sequence dimension of the KV cache enables specific compiler optimizations like cascaded reductions
-        self.is_kv_cache_tiled = neuron_config.kv_cache_tiling
+        self.is_kv_cache_tiled = False # TODO: enable this when compiler fixes CR 158191111 (as per NxDI comment)
         self._init_kv_shape(config, neuron_config)
 
         num_layer = config.num_hidden_layers
