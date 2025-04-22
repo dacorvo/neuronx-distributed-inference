@@ -139,10 +139,6 @@ class NeuronConfig:
         # QK layer normalization
         self.qk_layernorm = qk_layernorm
 
-        self.world_size = kwargs.pop("world_size", None)
-        if self.world_size is None:
-            self.world_size = self.tp_degree * self.pp_degree * self.ep_degree
-
         self.start_rank_id = kwargs.pop("start_rank_id", 0)
         self.local_ranks_size = kwargs.pop("local_ranks_size", None)
 
@@ -169,6 +165,14 @@ class NeuronConfig:
 
         if kwargs:
             logging.warning(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
+
+
+    @property
+    def world_size(self) -> int:
+        """
+        The total number of ranks in the distributed setup.
+        """
+        return self.tp_degree * self.pp_degree * self.ep_degree
 
 
     def save(self, model_path: Union[str, os.PathLike]):
