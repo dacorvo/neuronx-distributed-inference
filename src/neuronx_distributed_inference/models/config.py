@@ -49,6 +49,10 @@ class NeuronConfig:
                  seq_len: Optional[int] = 128,
                  tp_degree: Optional[int] = 1,
                  torch_dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
+                 rpl_reduce_dtype: Optional[Union[str, torch.dtype]] = None,
+                 n_active_tokens: Optional[int] = None,
+                 max_context_length: Optional[int] = None,
+                 output_logits: Optional[bool] = False,
                  fused_qkv: Optional[bool] = False,
                  vocab_parallel: Optional[bool] = False,
                  sequence_parallel_enabled: Optional[bool] = False,
@@ -64,17 +68,19 @@ class NeuronConfig:
         self.torch_dtype = torch_dtype
         if isinstance(self.torch_dtype, str):
             self.torch_dtype = to_torch_dtype(self.torch_dtype)
-        # TODO: cleanup all parameters below
+        self.n_active_tokens = self.seq_len if n_active_tokens is None else n_active_tokens
+        self.output_logits = output_logits
+
         self.padding_side = kwargs.pop("padding_side", "right")
-        self.n_active_tokens = kwargs.pop("n_active_tokens", self.seq_len)
-        # Need to provide example input shape for tracing
-        self.output_logits = kwargs.pop("output_logits", False)
 
-
-        self.rpl_reduce_dtype = kwargs.pop("rpl_reduce_dtype", self.torch_dtype)
+        self.rpl_reduce_dtype = torch_dtype if rpl_reduce_dtype is None else rpl_reduce_dtype
+        if isinstance(self.rpl_reduce_dtype, str):
+            self.rpl_reduce_dtype = to_torch_dtype(self.rpl_reduce_dtype)
 
         # fallback to sequence_length is for compatibility with vllm
-        self.max_context_length = kwargs.pop("max_context_length", self.seq_len)
+        self.max_context_length = max_context_length
+        if self.max_context_length is None:
+            self.max_context_length = seq_len
 
         # Graph transforms
         self.fused_qkv = fused_qkv
