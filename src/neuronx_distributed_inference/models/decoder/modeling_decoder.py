@@ -74,7 +74,7 @@ class NxDDecoderModel(nn.Module):
         self.vocab_size = config.vocab_size
         self.speculation_length = neuron_config.speculation_length
         self.padding_side = neuron_config.padding_side
-        self.max_length = neuron_config.max_length
+        self.max_length = neuron_config.seq_len
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
@@ -514,14 +514,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         if not new_neuron_config.enable_bucketing:
             new_neuron_config.buckets = generate_buckets(
-                neuron_config.max_length, neuron_config.max_length
+                neuron_config.seq_len, neuron_config.seq_len
             )
         else:
             if new_neuron_config.token_generation_buckets is not None:
                 new_neuron_config.buckets = new_neuron_config.token_generation_buckets
             else:
                 new_neuron_config.buckets = generate_buckets(
-                    128, neuron_config.max_length
+                    128, neuron_config.seq_len
                 )
 
         # shouldn't be used in token gen models
@@ -549,14 +549,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         if not new_neuron_config.enable_bucketing:
             new_neuron_config.buckets = generate_buckets(
-                neuron_config.max_length, neuron_config.max_length
+                neuron_config.seq_len, neuron_config.seq_len
             )
         else:
             if new_neuron_config.token_generation_buckets is not None:
                 new_neuron_config.buckets = new_neuron_config.token_generation_buckets
             else:
                 new_neuron_config.buckets = generate_buckets(
-                    128, neuron_config.max_length
+                    128, neuron_config.seq_len
                 )
 
         return NxDDecoderWrapper(

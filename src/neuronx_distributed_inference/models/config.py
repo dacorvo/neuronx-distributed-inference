@@ -68,7 +68,6 @@ class NeuronConfig:
 
         # fallback to sequence_length is for compatibility with vllm
         self.max_context_length = kwargs.pop("max_context_length", self.seq_len)
-        self.max_length = kwargs.pop("max_length", self.seq_len)
 
         # Embedding Config
         self.vocab_parallel = kwargs.pop("vocab_parallel", False)
@@ -109,8 +108,8 @@ class NeuronConfig:
         if self.token_generation_buckets is not None:
             self.token_generation_buckets.sort()
             assert (
-                self.token_generation_buckets[-1] <= self.max_length
-            ), f"Token generation bucket {self.token_generation_buckets[-1]} should be <= {self.max_length}"
+                self.token_generation_buckets[-1] <= self.seq_len
+            ), f"Token generation bucket {self.token_generation_buckets[-1]} should be <= {self.seq_len}"
 
         # Quantization
         self.quantized = kwargs.pop("quantized", False)
