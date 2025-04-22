@@ -49,6 +49,13 @@ class NeuronConfig:
                  seq_len: Optional[int] = 128,
                  tp_degree: Optional[int] = 1,
                  torch_dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
+                 fused_qkv: Optional[bool] = False,
+                 vocab_parallel: Optional[bool] = False,
+                 sequence_parallel_enabled: Optional[bool] = False,
+                 attn_kernel_enabled: Optional[bool] = False,
+                 qkv_kernel_enabled: Optional[bool] = False,
+                 mlp_kernel_enabled: Optional[bool] = False,
+                 mlp_kernel_fuse_residual_add: Optional[bool] = False,
                  **kwargs) -> None:
         # Basic config for inference in NxD
         self.batch_size = batch_size
@@ -71,12 +78,12 @@ class NeuronConfig:
         # fallback to sequence_length is for compatibility with vllm
         self.max_context_length = kwargs.pop("max_context_length", self.seq_len)
 
-        # Embedding Config
-        self.vocab_parallel = kwargs.pop("vocab_parallel", False)
+        # Graph transforms
+        self.fused_qkv = fused_qkv
 
-        # Attention
-        self.fused_qkv = kwargs.pop("fused_qkv", False)
-        self.sequence_parallel_enabled = kwargs.pop("sequence_parallel_enabled", False)
+        # Functional parallelism
+        self.vocab_parallel = vocab_parallel
+        self.sequence_parallel_enabled = sequence_parallel_enabled
 
         # Continuous batching
         # TODO: Check if we really need different batch size for CTE and TKG, given
@@ -165,10 +172,11 @@ class NeuronConfig:
         self.kv_cache_tiling = False
 
         # Kernels
-        self.attn_kernel_enabled = kwargs.pop("attn_kernel_enabled", False)
-        self.qkv_kernel_enabled = kwargs.pop("qkv_kernel_enabled", False)
-        self.mlp_kernel_enabled = kwargs.pop("mlp_kernel_enabled", False)
-        self.mlp_kernel_fuse_residual_add = kwargs.pop("mlp_kernel_fuse_residual_add", False)
+        self.attn_kernel_enabled = attn_kernel_enabled
+        self.qkv_kernel_enabled = qkv_kernel_enabled
+        self.mlp_kernel_enabled = mlp_kernel_enabled
+        self.mlp_kernel_fuse_residual_add = mlp_kernel_fuse_residual_add
+
         self.quantized_mlp_kernel_enabled = kwargs.pop("quantized_mlp_kernel_enabled", False)
         self.rmsnorm_quantize_kernel_enabled = kwargs.pop("rmsnorm_quantize_kernel_enabled", False)
         if self.rmsnorm_quantize_kernel_enabled:
@@ -176,9 +184,9 @@ class NeuronConfig:
                 self.quantized_mlp_kernel_enabled
             ), "quantized_mlp_kernel must be enabled to use rmsomrm_quantize_kernel!"
         self.quantized_kernel_lower_bound = kwargs.pop("quantized_kernel_lower_bound", 1200.0)
-        self.logical_nc_config = kwargs.pop("logical_nc_config", 1)
 
         # compiler flags
+        self.logical_nc_config = kwargs.pop("logical_nc_config", 1)
         self.cc_pipeline_tiling_factor = kwargs.pop("cc_pipeline_tiling_factor", 2)
         self.target = kwargs.pop("target", None)
 
