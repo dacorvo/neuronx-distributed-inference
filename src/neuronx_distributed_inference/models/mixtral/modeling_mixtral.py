@@ -119,7 +119,7 @@ def get_rmsnorm_cls(neuron_config):
     # Initialize to the appropriate implementation of RMSNorm
     # If infer on NXD -> CustomRMSNorm
     # If infer on CPU -> HF_RMSNorm (CustomRMSNorm does not work on CPU)
-    return MixtralRMSNorm if neuron_config.on_cpu else CustomRMSNorm
+    return CustomRMSNorm
 
 
 class NeuronMixtralAttention(NeuronAttentionBase):

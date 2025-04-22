@@ -106,7 +106,7 @@ class Sampler(torch.nn.Module):
 
     """
 
-    def __init__(self, neuron_config: NeuronConfig, do_sample=None):
+    def __init__(self, neuron_config: NeuronConfig, do_sample=None, on_cpu=False):
         super().__init__()
         self.on_device_sampling = neuron_config.on_device_sampling_config is not None
 
@@ -125,7 +125,10 @@ class Sampler(torch.nn.Module):
             -3000
         )  # large negative values will be transformed to ~0 in softmax, this is to ignore tokens that are beyond topk range
 
-        if not self.neuron_config.on_cpu:
+        self.on_cpu = on_cpu
+        if on_cpu:
+            self.process_group = None
+        else:
             if (
                 hasattr(self.neuron_config, "use_draft_group")
                 and self.neuron_config.use_draft_group
@@ -133,15 +136,13 @@ class Sampler(torch.nn.Module):
                 self.process_group = parallel_state.get_speculative_draft_group(as_list=False)
             else:
                 self.process_group = parallel_state.get_tensor_model_parallel_group()
-        else:
-            self.process_group = None
 
     def _soft_max(self, logits, dim):
         return torch.nn.functional.softmax(input=logits, dim=dim)
 
     def _top_k_masked(self, logits, top_k, dim):
         if self.global_topk > 0:
-            if self.neuron_config.on_cpu:
+            if self.on_cpu:
                 sorted_logits, indeces = torch.topk(input=logits, k=self.global_topk, dim=dim)
             else:
                 sorted_logits, indeces = nxd_topk(
@@ -193,7 +194,7 @@ class Sampler(torch.nn.Module):
         return counts
 
     def _argmax_sample(self, token_logits, return_values, dim):
-        if self.neuron_config.on_cpu:
+        if self.on_cpu:
             return torch.argmax(token_logits, dim=dim)
         else:
             # distributed argmax

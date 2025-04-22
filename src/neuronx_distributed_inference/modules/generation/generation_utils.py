@@ -121,8 +121,7 @@ class NxDGenerationMixin(GenerationMixin):
                     neuron_kwargs["on_device_sampling_config"] = config
                     sampler_config = NeuronConfig(**neuron_kwargs)
 
-                    sampler_config.on_cpu = True
-                    self.sampler = Sampler(sampler_config)
+                    self.sampler = Sampler(sampler_config, on_cpu=True)
 
                 next_tokens = self.sampler(next_token_scores, sampling_params)
             else:
