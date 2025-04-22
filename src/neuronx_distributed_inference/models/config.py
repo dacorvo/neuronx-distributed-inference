@@ -128,7 +128,6 @@ class NeuronConfig:
         # Speculative decoding
         self.trace_tokengen_model = kwargs.pop("trace_tokengen_model", True)
         self.speculation_length = kwargs.pop("speculation_length", 0)
-        self.spec_batch_size = kwargs.pop("spec_batch_size", self.batch_size)
 
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")

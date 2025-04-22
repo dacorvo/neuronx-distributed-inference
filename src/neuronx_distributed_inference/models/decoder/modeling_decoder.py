@@ -535,7 +535,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     @staticmethod
     def create_speculation_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
         new_neuron_config = copy.deepcopy(neuron_config)
-        new_neuron_config.batch_size = neuron_config.spec_batch_size
+        new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = neuron_config.speculation_length
 
         new_neuron_config.sequence_parallel_enabled = False
