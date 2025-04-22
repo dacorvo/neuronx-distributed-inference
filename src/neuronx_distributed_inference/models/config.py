@@ -51,6 +51,8 @@ class NeuronConfig:
                  is_continuous_batching: Optional[bool] = False,
                  seq_len: Optional[int] = 128,
                  tp_degree: Optional[int] = 1,
+                 ep_degree: Optional[int] = 1,
+                 pp_degree: Optional[int] = 1,
                  torch_dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
                  rpl_reduce_dtype: Optional[Union[str, torch.dtype]] = None,
                  n_active_tokens: Optional[int] = None,
@@ -60,6 +62,10 @@ class NeuronConfig:
                  fused_qkv: Optional[bool] = False,
                  vocab_parallel: Optional[bool] = False,
                  sequence_parallel_enabled: Optional[bool] = False,
+                 is_chunked_prefill: Optional[bool] = False,
+                 flash_decoding_enabled: Optional[bool] = False,
+                 async_mode: Optional[bool] = False,
+                 qk_layernorm: Optional[bool] = False,
                  attn_kernel_enabled: Optional[bool] = False,
                  qkv_kernel_enabled: Optional[bool] = False,
                  mlp_kernel_enabled: Optional[bool] = False,
@@ -93,6 +99,7 @@ class NeuronConfig:
         # Functional parallelism
         self.vocab_parallel = vocab_parallel
         self.sequence_parallel_enabled = sequence_parallel_enabled
+        self.is_chunked_prefill = is_chunked_prefill
 
         # Continuous batching
         # TODO: Check if we really need different batch size for CTE and TKG, given
@@ -110,7 +117,7 @@ class NeuronConfig:
             )
 
         # async
-        self.async_mode = kwargs.pop("async", False)
+        self.async_mode = async_mode
 
         # Bucketing
         self.enable_bucketing = enable_bucketing
@@ -123,16 +130,14 @@ class NeuronConfig:
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
 
-        # Chunked prefilled
-        self.is_chunked_prefill = kwargs.pop("is_chunked_prefill", False)
 
         # Distributed config
-        self.pp_degree = kwargs.pop("pp_degree", 1)
-        self.ep_degree = kwargs.pop("ep_degree", 1)
+        self.pp_degree = pp_degree
+        self.ep_degree = ep_degree
         self.save_sharded_checkpoint = kwargs.pop("save_sharded_checkpoint", True)
 
         # QK layer normalization
-        self.qk_layernorm = kwargs.pop("qk_layernorm", False)
+        self.qk_layernorm = qk_layernorm
 
         self.world_size = kwargs.pop("world_size", None)
         if self.world_size is None:
@@ -145,7 +150,7 @@ class NeuronConfig:
             self.local_ranks_size = self.world_size
 
         # Flash decoding
-        self.flash_decoding_enabled = kwargs.pop("flash_decoding_enabled", False)
+        self.flash_decoding_enabled = flash_decoding_enabled
         self.num_cores_per_group = 1
 
         # KV Cache tiling optimizations
@@ -168,7 +173,7 @@ class NeuronConfig:
         self.weights_to_skip_layout_optimization = []
 
         if kwargs:
-            logging.warn(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
+            logging.warning(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
 
 
     def save(self, model_path: Union[str, os.PathLike]):
