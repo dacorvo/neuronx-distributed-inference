@@ -53,6 +53,7 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--do-sample", action="store_true", default=False)
     run_parser.add_argument("--dynamic", action="store_true", default=False)
     run_parser.add_argument("--pad-token-id", type=int, default=0)
+    run_parser.add_argument("--max-new-tokens", type=int)
 
     # Basic config
     run_parser.add_argument("--torch-dtype", type=to_torch_dtype)
@@ -62,8 +63,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--n-active-tokens", type=int)
     run_parser.add_argument("--n-positions", type=int)
     run_parser.add_argument("--max-context-length", type=int)
-    run_parser.add_argument("--max-new-tokens", type=int)
-    run_parser.add_argument("--max-length", type=int)
     run_parser.add_argument("--rpl-reduce-dtype", type=to_torch_dtype)
     run_parser.add_argument("--output-logits", action="store_true")
     run_parser.add_argument("--vocab-parallel", action="store_true")
