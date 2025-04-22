@@ -159,9 +159,6 @@ class NeuronConfig:
         self.cc_pipeline_tiling_factor = kwargs.pop("cc_pipeline_tiling_factor", 2)
         self.target = kwargs.pop("target", None)
 
-        # weights_to_skip_layout_optimization
-        self.weights_to_skip_layout_optimization = []
-
         if kwargs:
             logging.warning(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
 
@@ -173,6 +170,15 @@ class NeuronConfig:
         """
         return self.tp_degree * self.pp_degree * self.ep_degree
 
+
+    @property
+    def weights_to_skip_layout_optimization(self) -> List[str]:
+        """
+        List of weights to skip layout optimization.
+
+        Can be overridden by subclasses to specify weights that should not be optimized.
+        """
+        return []
 
     def save(self, model_path: Union[str, os.PathLike]):
         """
