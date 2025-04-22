@@ -5,7 +5,6 @@ import time
 from typing import Type
 
 import torch
-from neuronx_distributed.quantization.quantization_config import QuantizationType
 from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 
 from neuronx_distributed_inference.models.pretrained_model import NxDPreTrainedModel
@@ -87,15 +86,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--context-encoding-buckets", nargs="+", type=int)
     run_parser.add_argument("--token-generation-buckets", nargs="+", type=int)
 
-    # Quantization
-    run_parser.add_argument("--quantized", action="store_true")
-    run_parser.add_argument("--quantized-checkpoints-path", type=str)
-    run_parser.add_argument(
-        "--quantization-type", type=str, choices=[t.value for t in QuantizationType]
-    )
-    run_parser.add_argument("--kv-cache-quant", action="store_true")
-    run_parser.add_argument("--quantization-dtype", type=str)
-
     # MoE
     run_parser.add_argument("--capacity-factor", type=float)
 
@@ -133,9 +123,6 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--qkv-kernel-enabled", action="store_true")
     run_parser.add_argument("--attn-kernel-enabled", action="store_true")
     run_parser.add_argument("--mlp-kernel-enabled", action="store_true")
-    run_parser.add_argument("--quantized-mlp-kernel-enabled", action="store_true")
-    run_parser.add_argument("--rmsnorm-quantize-kernel-enabled", action="store_true")
-    run_parser.add_argument("--quantized-kernel-lower-bound", type=float, default=1200.0)
     run_parser.add_argument("--mlp-kernel-fuse-residual-add", action="store_true")
 
     # Compiler Args
@@ -177,9 +164,6 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
         if args.on_device_sampling:
             config_kwargs["on_device_sampling_config"] = OnDeviceSamplingConfig(**config_kwargs)
 
-        if (args.quantized and args.quantization_dtype == "f8e4m3") or args.kv_cache_quant:
-            os.environ["XLA_HANDLE_SPECIAL_SCALAR"] = "1"
-
         neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
         config = AutoConfig.from_pretrained(args.model_path)
@@ -195,9 +179,6 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
             draft_neuron_config.tp_degree = args.draft_model_tp_degree
 
         draft_config = AutoConfig.from_pretrained(args.draft_model_path)
-
-    if neuron_config.quantized:
-        model_cls.save_quantized_state_dict(args.model_path, config, neuron_config)
 
     # Compile and save model.
     if not args.skip_compile:

@@ -4,7 +4,6 @@ import os
 from typing import Dict, List, Type, Optional, Union
 
 import torch
-from neuronx_distributed.quantization.quantization_config import QuantizedDtype
 
 NEURON_CONFIG_FILE = "neuron_config.json"
 
@@ -46,6 +45,10 @@ class NeuronConfig:
 
     def __init__(self,
                  batch_size: Optional[int] = 1,
+                 ctx_batch_size: Optional[int] = None,
+                 tkg_batch_size: Optional[int] = None,
+                 max_batch_size: Optional[int] = None,
+                 is_continuous_batching: Optional[bool] = False,
                  seq_len: Optional[int] = 128,
                  tp_degree: Optional[int] = 1,
                  torch_dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
@@ -53,6 +56,7 @@ class NeuronConfig:
                  n_active_tokens: Optional[int] = None,
                  max_context_length: Optional[int] = None,
                  output_logits: Optional[bool] = False,
+                 padding_side: Optional[str] = "right",
                  fused_qkv: Optional[bool] = False,
                  vocab_parallel: Optional[bool] = False,
                  sequence_parallel_enabled: Optional[bool] = False,
@@ -71,7 +75,7 @@ class NeuronConfig:
         self.n_active_tokens = self.seq_len if n_active_tokens is None else n_active_tokens
         self.output_logits = output_logits
 
-        self.padding_side = kwargs.pop("padding_side", "right")
+        self.padding_side = padding_side
 
         self.rpl_reduce_dtype = torch_dtype if rpl_reduce_dtype is None else rpl_reduce_dtype
         if isinstance(self.rpl_reduce_dtype, str):
@@ -92,10 +96,10 @@ class NeuronConfig:
         # Continuous batching
         # TODO: Check if we really need different batch size for CTE and TKG, given
         # that we anyway provide two different config instance for them.
-        self.ctx_batch_size = kwargs.pop("ctx_batch_size", self.batch_size)
-        self.tkg_batch_size = kwargs.pop("tkg_batch_size", self.batch_size)
-        self.max_batch_size = kwargs.pop("max_batch_size", self.batch_size)
-        self.is_continuous_batching = kwargs.pop("is_continuous_batching", False)
+        self.ctx_batch_size = batch_size if ctx_batch_size is None else ctx_batch_size
+        self.tkg_batch_size = batch_size if tkg_batch_size is None else tkg_batch_size
+        self.max_batch_size = batch_size if max_batch_size is None else max_batch_size
+        self.is_continuous_batching = is_continuous_batching
 
         # On-device sampling
         self.on_device_sampling_config = kwargs.pop("on_device_sampling_config", None)
@@ -123,19 +127,6 @@ class NeuronConfig:
             assert (
                 self.token_generation_buckets[-1] <= self.seq_len
             ), f"Token generation bucket {self.token_generation_buckets[-1]} should be <= {self.seq_len}"
-
-        # Quantization
-        self.quantized = kwargs.pop("quantized", False)
-        self.quantized_checkpoints_path = kwargs.pop("quantized_checkpoints_path", None)
-        if self.quantized is True:
-            assert (
-                self.quantized_checkpoints_path is not None
-            ), "quantized_checkpoints_path is required"
-        self.quantization_type: str = kwargs.pop("quantization_type", "per_tensor_symmetric")
-        self.quantization_dtype: str = kwargs.pop("quantization_dtype", "int8")
-
-        # TODO: Add validation for quantized_checkpoints_path after the design discussions
-        self.kv_cache_quant = kwargs.pop("kv_cache_quant", False)
 
         # Speculative decoding
         self.trace_tokengen_model = kwargs.pop("trace_tokengen_model", True)
@@ -181,14 +172,6 @@ class NeuronConfig:
         self.mlp_kernel_enabled = mlp_kernel_enabled
         self.mlp_kernel_fuse_residual_add = mlp_kernel_fuse_residual_add
 
-        self.quantized_mlp_kernel_enabled = kwargs.pop("quantized_mlp_kernel_enabled", False)
-        self.rmsnorm_quantize_kernel_enabled = kwargs.pop("rmsnorm_quantize_kernel_enabled", False)
-        if self.rmsnorm_quantize_kernel_enabled:
-            assert (
-                self.quantized_mlp_kernel_enabled
-            ), "quantized_mlp_kernel must be enabled to use rmsomrm_quantize_kernel!"
-        self.quantized_kernel_lower_bound = kwargs.pop("quantized_kernel_lower_bound", 1200.0)
-
         # compiler flags
         self.logical_nc_config = kwargs.pop("logical_nc_config", 1)
         self.cc_pipeline_tiling_factor = kwargs.pop("cc_pipeline_tiling_factor", 2)
@@ -200,16 +183,6 @@ class NeuronConfig:
         if kwargs:
             logging.warn(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
 
-        self._verify_quantized_config()
-
-    def _verify_quantized_config(self):
-        if not self.quantized:
-            return
-        assert self.quantized_checkpoints_path is not None, "quantized_checkpoints_path is required"
-        # Verification for quantized dtype
-        QuantizedDtype.has_dtype(self.quantization_dtype)
-        if self.quantized_mlp_kernel_enabled:
-            assert self.quantization_dtype == "f8e4m3"
 
     def save(self, model_path: Union[str, os.PathLike]):
         """

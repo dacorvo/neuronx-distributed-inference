@@ -7,7 +7,6 @@ from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
 from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
-from neuronx_distributed.quantization.quantization_layers import BaseQuantizeParallelLinear
 from neuronxcc.nki._private_kernels.qkv import rmsnorm_qkv_isa_kernel
 from neuronxcc.nki.language import nc
 from torch import nn
@@ -89,58 +88,7 @@ def get_shardable_head_counts(
     return updated_num_attention_heads, updated_num_key_value_heads
 
 
-def is_per_channel(scale: torch.Tensor) -> bool:
-    """See if the scale is per channel"""
-    if scale.shape == (1,):
-        return False
-    return True
-
-
-def get_tensor_per_channel_scale_axis(scale: torch.Tensor) -> int:
-    """Get the channel axis for the per channel scale"""
-    scale_shape = scale.shape
-    # Only one dimension would have scale values
-    for i, dim_length in enumerate(scale_shape):
-        if dim_length > 1:
-            return i
-    raise RuntimeError(f"Cannot get channel axis for the scale: {scale}")
-
-
-def should_pad_scale(tensor_scale: torch.Tensor, pad_dim: int) -> bool:
-    """Should scale be padded"""
-    if (
-        (tensor_scale is not None)
-        and (is_per_channel(tensor_scale))
-        and (get_tensor_per_channel_scale_axis(tensor_scale) == pad_dim)
-    ):
-        return True
-    return False
-
-
-def verify_scale_dimension(tensor: torch.Tensor, tensor_scale: torch.Tensor):
-    if is_per_channel(tensor_scale):
-        channel_axis = get_tensor_per_channel_scale_axis(scale=tensor_scale)
-        assert tensor_scale.shape[channel_axis] == tensor.shape[channel_axis]
-
-
 def maybe_pad_interleaved(
-    tensor,
-    pad_dim: int,
-    source_heads: int,
-    target_heads: int,
-    source_group_size: int,
-    tensor_scale: torch.Tensor = None,
-):
-    tensor = _maybe_pad_interleaved(tensor, pad_dim, source_heads, target_heads, source_group_size)
-    if should_pad_scale(tensor_scale=tensor_scale, pad_dim=pad_dim):
-        tensor_scale = _maybe_pad_interleaved(
-            tensor_scale, pad_dim, source_heads, target_heads, source_group_size
-        )
-
-    return tensor, tensor_scale
-
-
-def _maybe_pad_interleaved(
     tensor, pad_dim: int, source_heads: int, target_heads: int, source_group_size: int
 ):
     if tensor is None:
@@ -182,14 +130,7 @@ def _maybe_pad_interleaved(
     return tensor.view(shape)
 
 
-def maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int, tensor_scale=None):
-    tensor = _maybe_pad_tail(tensor, source_heads, target_heads, pad_dim)
-    if should_pad_scale(tensor_scale=tensor_scale, pad_dim=pad_dim):
-        tensor_scale = _maybe_pad_tail(tensor_scale, source_heads, target_heads, pad_dim)
-    return tensor, tensor_scale
-
-
-def _maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int):
+def maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int):
     if tensor is None:
         return tensor
     size_to_pad = int(
@@ -203,18 +144,7 @@ def _maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int):
     return F.pad(tensor, pad)
 
 
-def replicate_kv(tensor, source_heads: int, repeats: int, head_dim=0, tensor_scale=None):
-    tensor = _replicate_kv(
-        tensor=tensor, source_heads=source_heads, repeats=repeats, head_dim=head_dim
-    )
-    if should_pad_scale(tensor_scale=tensor_scale, pad_dim=head_dim):
-        tensor_scale = _replicate_kv(
-            tensor=tensor_scale, source_heads=source_heads, repeats=repeats, head_dim=head_dim
-        )
-    return tensor, tensor_scale
-
-
-def _replicate_kv(tensor, source_heads: int, repeats: int, head_dim=0):
+def replicate_kv(tensor, source_heads: int, repeats: int, head_dim=0):
     if tensor is None:
         return tensor
     shape = (
@@ -535,33 +465,19 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         self, prefix: str, layer: torch.nn.Module, layer_name, model_state_dict: dict
     ) -> Tuple[torch.Tensor]:
         if hasattr(layer, "get_weight_from_state_dict"):
-            weight = layer.get_weight_from_state_dict(
+            return layer.get_weight_from_state_dict(
                 prefix=f"{prefix}.{layer_name}.", state_dict=model_state_dict
             )
-            if isinstance(layer, BaseQuantizeParallelLinear):
-                scale = layer.get_scale_from_state_dict(
-                    prefix=f"{prefix}.{layer_name}.", state_dict=model_state_dict
-                )
-            else:
-                scale = None
-        else:
-            weight = model_state_dict[f"{prefix}.{layer_name}.weight"]
-            if isinstance(layer, BaseQuantizeParallelLinear):
-                scale = model_state_dict[f"{prefix}.{layer_name}.scale"]
-            else:
-                scale = None
-        return weight, scale
+        return model_state_dict[f"{prefix}.{layer_name}.weight"]
 
     def get_bias(
         self, prefix: str, layer: torch.nn.Module, layer_name: str, model_state_dict: dict
     ) -> Tuple[torch.Tensor]:
         if hasattr(layer, "get_bias_from_state_dict"):
-            bias = layer.get_bias_from_state_dict(
+            return layer.get_bias_from_state_dict(
                 prefix=f"{prefix}.{layer_name}.", state_dict=model_state_dict
             )
-        else:
-            bias = model_state_dict.get(f"{prefix}.{layer_name}.bias")
-        return bias
+        return model_state_dict.get(f"{prefix}.{layer_name}.bias")
 
     def set_weight(
         self,
@@ -570,13 +486,9 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         layer: torch.nn.Module,
         layer_name,
         model_state_dict: dict,
-        scale: torch.Tensor = None,
     ) -> Tuple[torch.Tensor]:
         # TODO: set weight to state dict support is pending.
         model_state_dict[f"{prefix}.{layer_name}.weight"] = tensor
-        if scale is not None:
-            model_state_dict[f"{prefix}.{layer_name}.scale"] = scale
-            verify_scale_dimension(tensor=tensor, tensor_scale=scale)
 
     def set_bias(
         self,
@@ -603,7 +515,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 new_prefix=f"{prefix}.Wqkv",
                 model_state_dict=model_state_dict,
             )
-            qkv_weight, _ = self.get_weight(
+            qkv_weight = self.get_weight(
                 prefix=prefix, layer=self.Wqkv, layer_name="Wqkv", model_state_dict=model_state_dict
             )
             q_proj_weight, k_proj_weight, v_proj_weight = qkv_weight.split(
@@ -614,7 +526,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 ],
                 dim=0,
             )
-            q_proj_scale, k_proj_scale, v_proj_scale = None, None, None
             qkv_bias = self.get_bias(
                 prefix=prefix, layer=self.Wqkv, layer_name="Wqkv", model_state_dict=model_state_dict
             )
@@ -646,19 +557,19 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 model_state_dict=model_state_dict,
             )
 
-            q_proj_weight, q_proj_scale = self.get_weight(
+            q_proj_weight = self.get_weight(
                 prefix=prefix,
                 layer=self.q_proj,
                 layer_name="q_proj",
                 model_state_dict=model_state_dict,
             )
-            k_proj_weight, k_proj_scale = self.get_weight(
+            k_proj_weight = self.get_weight(
                 prefix=prefix,
                 layer=self.k_proj,
                 layer_name="k_proj",
                 model_state_dict=model_state_dict,
             )
-            v_proj_weight, v_proj_scale = self.get_weight(
+            v_proj_weight = self.get_weight(
                 prefix=prefix,
                 layer=self.v_proj,
                 layer_name="v_proj",
@@ -689,37 +600,34 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 repeats = self.tp_degree // self._src_num_key_value_heads
             elif self.sharding_strategy == GQA.CONVERT_TO_MHA:
                 repeats = self._src_num_attention_heads // self._src_num_key_value_heads
-            k_proj_weight, k_proj_scale = replicate_kv(
+            k_proj_weight = replicate_kv(
                 k_proj_weight,
                 source_heads=self._src_num_key_value_heads,
                 repeats=repeats,
                 head_dim=0,
-                tensor_scale=k_proj_scale,
             )
-            k_proj_bias, _ = replicate_kv(
+            k_proj_bias = replicate_kv(
                 k_proj_bias, source_heads=self._src_num_key_value_heads, repeats=repeats, head_dim=0
             )
-            v_proj_weight, v_proj_scale = replicate_kv(
+            v_proj_weight = replicate_kv(
                 v_proj_weight,
                 source_heads=self._src_num_key_value_heads,
                 repeats=repeats,
                 head_dim=0,
-                tensor_scale=v_proj_scale,
             )
-            v_proj_bias, _ = replicate_kv(
+            v_proj_bias = replicate_kv(
                 v_proj_bias, source_heads=self._src_num_key_value_heads, repeats=repeats, head_dim=0
             )
 
         if self.sharding_strategy == GQA.REPLICATE_TO_TP_DEGREE:
-            q_proj_weight, q_proj_scale = maybe_pad_interleaved(
+            q_proj_weight = maybe_pad_interleaved(
                 q_proj_weight,
                 pad_dim=0,
                 source_heads=self._src_num_attention_heads,
                 target_heads=self.num_attention_heads,
                 source_group_size=self._src_num_attention_heads // self._src_num_key_value_heads,
-                tensor_scale=q_proj_scale,
             )
-            q_proj_bias, _ = maybe_pad_interleaved(
+            q_proj_bias = maybe_pad_interleaved(
                 q_proj_bias,
                 pad_dim=0,
                 source_heads=self._src_num_attention_heads,
@@ -728,40 +636,37 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             )
 
         if self.sharding_strategy == GQA.CONVERT_TO_MHA:
-            q_proj_weight, q_proj_scale = maybe_pad_tail(
+            q_proj_weight = maybe_pad_tail(
                 q_proj_weight,
                 source_heads=self._src_num_attention_heads,
                 target_heads=self.num_attention_heads,
                 pad_dim=0,
-                tensor_scale=q_proj_scale,
             )
-            q_proj_bias, _ = maybe_pad_tail(
+            q_proj_bias = maybe_pad_tail(
                 q_proj_bias,
                 source_heads=self._src_num_attention_heads,
                 target_heads=self.num_attention_heads,
                 pad_dim=0,
             )
-            k_proj_weight, k_proj_scale = maybe_pad_tail(
+            k_proj_weight = maybe_pad_tail(
                 k_proj_weight,
                 source_heads=self._src_num_key_value_heads,
                 target_heads=self.num_key_value_heads,
                 pad_dim=0,
-                tensor_scale=k_proj_scale,
             )
-            k_proj_bias, _ = maybe_pad_tail(
+            k_proj_bias = maybe_pad_tail(
                 k_proj_bias,
                 source_heads=self._src_num_key_value_heads,
                 target_heads=self.num_key_value_heads,
                 pad_dim=0,
             )
-            v_proj_weight, v_proj_scale = maybe_pad_tail(
+            v_proj_weight = maybe_pad_tail(
                 v_proj_weight,
                 source_heads=self._src_num_key_value_heads,
                 target_heads=self.num_key_value_heads,
                 pad_dim=0,
-                tensor_scale=v_proj_scale,
             )
-            v_proj_bias, _ = maybe_pad_tail(
+            v_proj_bias = maybe_pad_tail(
                 v_proj_bias,
                 source_heads=self._src_num_key_value_heads,
                 target_heads=self.num_key_value_heads,
@@ -793,7 +698,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 layer=self.q_proj,
                 layer_name="q_proj",
                 model_state_dict=model_state_dict,
-                scale=q_proj_scale,
             )
             self.set_weight(
                 tensor=k_proj_weight,
@@ -801,7 +705,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 layer=self.k_proj,
                 layer_name="k_proj",
                 model_state_dict=model_state_dict,
-                scale=k_proj_scale,
             )
             self.set_weight(
                 tensor=v_proj_weight,
@@ -809,7 +712,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 layer=self.v_proj,
                 layer_name="v_proj",
                 model_state_dict=model_state_dict,
-                scale=v_proj_scale,
             )
 
             if self.bias:
@@ -905,30 +807,24 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
             model_state_dict=model_state_dict,
         )
         o_proj_weight = model_state_dict[f"{prefix}.o_proj.weight"]
-        o_proj_scale = model_state_dict.get(f"{prefix}.o_proj.scale", None)
 
         if self.sharding_strategy == GQA.REPLICATE_TO_TP_DEGREE:
-            o_proj_weight, o_proj_scale = maybe_pad_interleaved(
+            o_proj_weight = maybe_pad_interleaved(
                 o_proj_weight,
                 pad_dim=1,
                 source_heads=self._src_num_attention_heads,
                 target_heads=self.num_attention_heads,
                 source_group_size=self._src_num_attention_heads // self._src_num_key_value_heads,
-                tensor_scale=o_proj_scale,
             )
 
         if self.sharding_strategy == GQA.CONVERT_TO_MHA:
-            o_proj_weight, o_proj_scale = maybe_pad_tail(
+            o_proj_weight = maybe_pad_tail(
                 o_proj_weight,
                 source_heads=self._src_num_attention_heads,
                 target_heads=self.num_attention_heads,
                 pad_dim=1,
-                tensor_scale=o_proj_scale,
             )
 
         model_state_dict[f"{prefix}.o_proj.weight"] = o_proj_weight
-        if o_proj_scale is not None:
-            model_state_dict[f"{prefix}.o_proj.scale"] = o_proj_scale
-            verify_scale_dimension(tensor=o_proj_weight, tensor_scale=o_proj_scale)
 
         return True

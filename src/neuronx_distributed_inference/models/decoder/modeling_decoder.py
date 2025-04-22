@@ -14,11 +14,9 @@ from neuronx_distributed.parallel_layers.mappings import (
     _reduce_scatter_along_dim,
     gather_from_sequence_parallel_region,
 )
-from neuronx_distributed.quantization.quantization_utils import convert_qint8_to_int8_state_dict
 from torch import nn
 from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
-from transformers.generation import GenerationConfig, StoppingCriteriaList
 
 from neuronx_distributed_inference.models.config import NeuronConfig
 from neuronx_distributed_inference.modules.attention import utils as attn_utils
@@ -590,18 +588,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             ) if neuron_config.speculation_length > 0 else None
         return context_encoding_model, token_generation_model, speculation_model
 
-    @classmethod
-    def prepare_quantized_state_dict(cls, hf_model_quant):
-        model_quant_sd = hf_model_quant.model.state_dict()
-        lm_head_quant_sd = hf_model_quant.lm_head.state_dict()
-        convert_qint8_to_int8_state_dict(model_quant_sd)
-        convert_qint8_to_int8_state_dict(lm_head_quant_sd)
-
-        model_quant_sd["lm_head.weight"] = lm_head_quant_sd["weight"]
-        model_quant_sd["lm_head.scale"] = lm_head_quant_sd["scale"]
-
-        return model_quant_sd
-
     def forward(
         self,
         input_ids: torch.LongTensor,
@@ -839,18 +825,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         if neuron_config.target:
             compiler_args += f" --target {neuron_config.target}"
-
-        if (
-            (
-                neuron_config.quantized is True
-                and neuron_config.quantization_dtype == "f8e4m3"
-            )
-            or neuron_config.kv_cache_quant
-            or neuron_config.quantized_mlp_kernel_enabled
-        ):
-            compiler_args += (
-                " --internal-hlo2tensorizer-options='--experimental-unsafe-fp8e4m3fn-as-fp8e4m3' "
-            )
 
         logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
         return compiler_args

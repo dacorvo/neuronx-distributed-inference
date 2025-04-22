@@ -7,12 +7,6 @@ from typing import List, Optional
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
-from neuronx_distributed.quantization.quantization_config import QuantizationType, QuantizedDtype
-from neuronx_distributed.quantization.quantization_utils import (
-    convert_qint8_to_int8_state_dict,
-    quantize_pytorch_model_per_channel_symmetric,
-    quantize_pytorch_model_per_tensor_symmetric,
-)
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, PretrainedConfig
@@ -222,23 +216,12 @@ class NxDPreTrainedModel():
     def checkpoint_loader_fn(self, checkpoint_path, config, neuron_config):
         """This function loads the model's state dictionary and weights from the hf model"""
 
-        if neuron_config.quantized:
-            return self.get_quantized_state_dict(config, neuron_config)
-        else:
-            model_sd = self.get_state_dict(checkpoint_path, config, neuron_config)
-            if neuron_config.torch_dtype != torch.float32:
-                for name, param in model_sd.items():
-                    if torch.is_floating_point(param) and param.dtype not in [torch.float8_e4m3fn]:
-                        # only cast floating types
-                        if name.endswith("scale"):
-                            warnings.warn(
-                                f"Found float32 weights in quantized checkpoint: {name}. Will skip converting to bfloat16 as its scale"
-                            )
-                        else:
-                            warnings.warn(
-                                f"Found float32 weights in quantized checkpoint: {name}. Will convert to bfloat16"
-                            )
-                            model_sd[name] = param.to(neuron_config.torch_dtype)
+        model_sd = self.get_state_dict(checkpoint_path, config, neuron_config)
+        if neuron_config.torch_dtype != torch.float32:
+            for name, param in model_sd.items():
+                if torch.is_floating_point(param) and param.dtype is not neuron_config.torch_dtype:
+                    logger.info(f"Converting {name} to {neuron_config.torch_dtype}")
+                    model_sd[name] = param.to(neuron_config.torch_dtype)
         return model_sd
 
     @classmethod
@@ -264,110 +247,10 @@ class NxDPreTrainedModel():
                 del model_sd[param_name]
         return model_sd
 
-    @classmethod
-    def get_quantized_state_dict(cls, config: PretrainedConfig, neuron_config: NeuronConfig, mmap: bool = False) -> dict:
-        """
-        This function loads the checkpointed float model state dictionary and weights from the quantized hf model
-        This will be removed once we move to safe tensors in NxD
-        """
-        existing_checkpoint_path = neuron_config.quantized_checkpoints_path
-        if not os.path.exists(existing_checkpoint_path):
-            raise FileNotFoundError(
-                f"Quantized checkpoint file not found: {existing_checkpoint_path}"
-            )
-
-        print(f"Using existing checkpoint: {existing_checkpoint_path}")
-        if os.path.isdir(existing_checkpoint_path):
-            model_quant_sd = load_state_dict(existing_checkpoint_path)
-        else:
-            model_quant_sd = torch.load(existing_checkpoint_path)
-
-        # For the case when huggingface models come with existing prefixes. We do not allow
-        # Any prefix like "model."
-        param_name_list = list(model_quant_sd.keys())
-        for param_name in param_name_list:
-            if param_name.startswith(cls._STATE_DICT_MODEL_PREFIX):
-                updated_param_name = param_name.replace(
-                    cls._STATE_DICT_MODEL_PREFIX, cls._NEW_STATE_DICT_MODEL_PREFIX, 1
-                )
-                model_quant_sd[updated_param_name] = model_quant_sd[param_name]
-                del model_quant_sd[param_name]
-
-        model_quant_sd = cls.convert_hf_to_neuron_state_dict(model_quant_sd, config)
-
-        # Make sure that the non quantized weights are in bfloat16 and not float32
-        if neuron_config.torch_dtype == torch.bfloat16:
-            for name, param in model_quant_sd.items():
-                # TODO: Reduce and clean-up these warnings
-                if param is not None and param.dtype == torch.float32:
-                    if name.endswith(".scale"):
-                        warnings.warn(
-                            f"Found float32 weights in quantized checkpoint: {name}. Will skip converting to bfloat16 as its scale"
-                        )
-                    else:
-                        warnings.warn(
-                            f"Found float32 weights in quantized checkpoint: {name}. Will convert to bfloat16"
-                        )
-                        model_quant_sd[name] = param.bfloat16()
-
-        return model_quant_sd
-
     @staticmethod
     def convert_hf_to_neuron_state_dict(state_dict: dict, config: PretrainedConfig) -> dict:
         """This function should be over-ridden in child classes as needed"""
         return state_dict
-
-    @classmethod
-    def save_quantized_state_dict(cls, model_path: str, config: PretrainedConfig, neuron_config: NeuronConfig):
-        """
-        Quantizes the model and saves the quantized checkpoint to `neuron_config.quantized_checkpoints_path`.
-        """
-        model_path = normalize_path(model_path)
-        quantized_state_dict = cls.generate_quantized_state_dict(model_path, neuron_config)
-
-        # Prune None values in the quantized_state_dict. torch.save crashes if None values exist.
-        quantized_state_dict = prune_state_dict(quantized_state_dict)
-        if os.path.isdir(neuron_config.quantized_checkpoints_path):
-            logging.info(
-                "Saving quantized state dict as safetensors to: %s",
-                neuron_config.quantized_checkpoints_path,
-            )
-            save_state_dict_safetensors(
-                state_dict=quantized_state_dict,
-                state_dict_dir=neuron_config.quantized_checkpoints_path,
-            )
-        else:
-            logging.info(
-                "Saving quantized state dict as torch pt file to: %s",
-                neuron_config.quantized_checkpoints_path,
-            )
-            torch.save(quantized_state_dict, neuron_config.quantized_checkpoints_path)
-
-    @classmethod
-    def generate_quantized_state_dict(cls, model_path: str, neuron_config: NeuronConfig) -> dict:
-        """Generates the quantized state dict for this model."""
-        hf_model = cls.load_hf_model(model_path)
-        quantization_type = QuantizationType(neuron_config.quantization_type)
-        quantized_dtype = QuantizedDtype.get_dtype(neuron_config.quantization_dtype)
-        if quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
-            hf_model_quant = quantize_pytorch_model_per_tensor_symmetric(
-                float_model=hf_model, inplace=True, dtype=quantized_dtype
-            )
-        elif quantization_type == QuantizationType.PER_CHANNEL_SYMMETRIC:
-            hf_model_quant = quantize_pytorch_model_per_channel_symmetric(
-                float_model=hf_model, inplace=True, dtype=quantized_dtype
-            )
-        else:
-            raise RuntimeError(f"{neuron_config.quantization_type} not supported")
-
-        return cls.prepare_quantized_state_dict(hf_model_quant)
-
-    @classmethod
-    def prepare_quantized_state_dict(cls, hf_model_quant) -> dict:
-        """Can be overriden to customize the quantized state dict in generate_quantized_state_dict."""
-        model_quant_sd = hf_model_quant.model.state_dict()
-        convert_qint8_to_int8_state_dict(model_quant_sd)
-        return model_quant_sd
 
     @staticmethod
     def load_hf_model(model_path):

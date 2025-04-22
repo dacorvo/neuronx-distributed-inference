@@ -4,7 +4,6 @@ from typing import List
 import torch
 from transformers import PretrainedConfig
 from neuronx_distributed.parallel_layers import parallel_state, utils
-from neuronx_distributed.quantization import dequantize, quantize
 from torch import Tensor, nn
 from torch_neuronx.xla_impl.ops import ConcatenateOp
 
@@ -59,21 +58,15 @@ class KVCacheManager(nn.Module):
         # NOTE: Tiling the sequence dimension of the KV cache enables specific compiler optimizations like cascaded reductions
         self.is_kv_cache_tiled = neuron_config.kv_cache_tiling
         self._init_kv_shape(config, neuron_config)
-        self.quant = neuron_config.kv_cache_quant
 
         num_layer = config.num_hidden_layers
         dtype = neuron_config.torch_dtype
-        if self.quant:
-            self.quant_dtype = torch.float8_e4m3fn
-            self.dequant_dtype = dtype
         self.past_key_values = nn.ParameterList(
             [
                 nn.Parameter(torch.zeros(self.kv_shape, dtype=dtype), requires_grad=False)
                 for _ in range(num_layer * 2)
             ]
         )
-        if self.quant:
-            self.past_key_values = self.past_key_values.to(self.quant_dtype)
 
     def _get_num_kv_heads_per_rank(self, config: PretrainedConfig, neuron_config: NeuronConfig):
         tp_degree = neuron_config.tp_degree
@@ -172,9 +165,6 @@ class KVCacheManager(nn.Module):
                 k_cache = _slice_kv_cacheline(self.padding_side, seq_len, k_cache)
                 v_cache = _slice_kv_cacheline(self.padding_side, seq_len, v_cache)
 
-            if self.quant:
-                k_cache = dequantize.direct_cast_dequantize(k_cache, self.dequant_dtype)
-                v_cache = dequantize.direct_cast_dequantize(v_cache, self.dequant_dtype)
             past_key_values.append([k_cache, v_cache])
         return past_key_values
 
@@ -210,10 +200,6 @@ class KVCacheManager(nn.Module):
         updated_kv_cache = []
         for idx, kv_per_layer in enumerate(new_key_values):
             latest_k, latest_v = kv_per_layer[0], kv_per_layer[1]
-
-            if self.quant:
-                latest_k = quantize.direct_cast_quantize(latest_k, self.quant_dtype)
-                latest_v = quantize.direct_cast_quantize(latest_v, self.quant_dtype)
 
             if kvcache_buffer is None:
                 cache_shape = self.past_key_values[idx * 2].shape

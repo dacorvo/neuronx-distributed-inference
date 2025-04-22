@@ -3,13 +3,6 @@ import os
 
 import torch
 import torch.nn.functional as F
-from neuronx_distributed.quantization.quantization_config import (
-    QuantizationType,
-    QuantizedDtype,
-    get_default_custom_qconfig_dict,
-    get_default_per_channel_custom_qconfig_dict,
-)
-from neuronx_distributed.quantization.quantize import convert
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
 from transformers import PretrainedConfig
@@ -299,30 +292,7 @@ class DecoderModelInstance(BaseModelInstance):
                 if t.is_floating_point() and t.dtype not in [torch.float8_e4m3fn, torch.float8_e5m2]
                 else t
             )
-
-            # TODO: In the current case we initialize the float_model which has Quantization layers as well
-            # the above code will convert fp32 scales to bfloat16. This should be fixed when we remove
-            # Quantization layers from NeuronLLamaMLP
-            for name, param in float_model.named_parameters():
-                if name.endswith("scale"):
-                    param.data = param.data.to(torch.float32)
-
-        if (
-            self.neuron_config.quantized is True
-            and not self.neuron_config.quantized_mlp_kernel_enabled
-        ):
-            quantization_type = QuantizationType(self.neuron_config.quantization_type)
-            if quantization_type == QuantizationType.PER_CHANNEL_SYMMETRIC:
-                q_config = get_default_per_channel_custom_qconfig_dict()
-            elif quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
-                q_config = get_default_custom_qconfig_dict()
-            else:
-                raise RuntimeError(f"{self.neuron_config.quantization_type} is not supported")
-            if self.neuron_config.quantization_dtype == "f8e4m3":
-                q_config["quantized_dtype"] = QuantizedDtype.F8E4M3
-            self.module = convert(float_model, q_config=q_config, inplace=True, mapping=None)
-        else:
-            self.module = float_model
+        self.module = float_model
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
