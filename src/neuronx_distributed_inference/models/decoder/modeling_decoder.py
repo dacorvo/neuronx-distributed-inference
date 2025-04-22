@@ -569,11 +569,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 **model_init_kwargs,
             )
         token_generation_model = NxDModelForCausalLM.create_token_generation_wrapper(
-                    model_cls,
-                    config,
-                    neuron_config,
-                    **model_init_kwargs,
-                ) if neuron_config.trace_tokengen_model else None
+                model_cls,
+                config,
+                neuron_config,
+                **model_init_kwargs,
+            )
         speculation_model = NxDModelForCausalLM.create_speculation_wrapper(
                 model_cls,
                 config,

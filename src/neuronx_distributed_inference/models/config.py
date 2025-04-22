@@ -49,6 +49,7 @@ class NeuronConfig:
                  tkg_batch_size: Optional[int] = None,
                  max_batch_size: Optional[int] = None,
                  is_continuous_batching: Optional[bool] = False,
+                 speculation_length: Optional[int] = 0,
                  seq_len: Optional[int] = 128,
                  tp_degree: Optional[int] = 1,
                  ep_degree: Optional[int] = 1,
@@ -126,9 +127,7 @@ class NeuronConfig:
         self.enable_bucketing = enable_bucketing
 
         # Speculative decoding
-        self.trace_tokengen_model = kwargs.pop("trace_tokengen_model", True)
-        self.speculation_length = kwargs.pop("speculation_length", 0)
-
+        self.speculation_length = speculation_length
         if self.speculation_length > 0 and self.async_mode:
             raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
 

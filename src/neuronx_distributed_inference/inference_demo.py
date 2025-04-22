@@ -90,11 +90,7 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--draft-model-path", type=str)
     run_parser.add_argument("--draft-model-tp-degree", type=int, default=None)
     run_parser.add_argument("--compiled-draft-model-path", type=str)
-    run_parser.add_argument(
-        "--no-trace-tokengen-model", dest="trace_tokengen_model", action="store_false"
-    )
     run_parser.add_argument("--speculation-length", type=int)
-    run_parser.add_argument("--spec-batch-size", type=int)
 
     # Parallelism
     run_parser.add_argument("--tp-degree", type=int)
@@ -166,7 +162,6 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
         # Reset speculation options to defaults for the draft model.
         draft_neuron_config = copy.deepcopy(neuron_config)
         draft_neuron_config.speculation_length = 0
-        draft_neuron_config.trace_tokengen_model = True
 
         if args.draft_model_tp_degree is not None:
             draft_neuron_config.tp_degree = args.draft_model_tp_degree

@@ -10,7 +10,6 @@ inference_demo  --model-type llama --task-type causal-lm run \
                 --max-context-length 3892 \
                 --seq-len 4096 \
                 --speculation-length 5 \
-                --no-trace-tokengen-model \
                 --max-new-tokens 64 \
                 --enable-bucketing \
                 --top-k 1 \
