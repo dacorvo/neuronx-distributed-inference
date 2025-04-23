@@ -24,77 +24,54 @@ MODEL_TYPES = {
 }
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model-type", type=str, choices=MODEL_TYPES.keys(), required=True)
-    parser.add_argument("--task-type", type=str, required=True)
-    subparsers = parser.add_subparsers()
+def setup_export_parser(parser: argparse.ArgumentParser):
+    parser.add_argument("--model-path", type=str, required=True)
+    parser.add_argument("--compiled-model-path", type=str, required=True)
 
-    run_parser = subparsers.add_parser("run")
-    setup_run_parser(run_parser)
-
-    return parser.parse_args()
-
-
-def setup_run_parser(run_parser: argparse.ArgumentParser):
-    run_parser.add_argument("--model-path", type=str, required=True)
-    run_parser.add_argument("--compiled-model-path", type=str, required=True)
-
-    # Generation
-    run_parser.add_argument("--prompt", dest="prompts", type=str, action="append", required=True)
-    run_parser.add_argument("--top-k", type=int, default=1)
-    run_parser.add_argument("--top-p", type=float, default=1.0)
-    run_parser.add_argument("--temperature", type=float, default=1.0)
-    run_parser.add_argument("--max-topk", type=int, default=256)
-    run_parser.add_argument("--do-sample", action="store_true", default=False)
-    run_parser.add_argument("--pad-token-id", type=int, default=0)
-    run_parser.add_argument("--max-new-tokens", type=int)
+    parser.add_argument("--pad-token-id", type=int, default=0)
 
     # Basic config
-    run_parser.add_argument("--torch-dtype", type=to_torch_dtype)
-    run_parser.add_argument("--batch-size", type=int)
-    run_parser.add_argument("--padding-side", type=str, default="right")
-    run_parser.add_argument("--seq-len", type=int)
-    run_parser.add_argument("--n-active-tokens", type=int)
-    run_parser.add_argument("--n-positions", type=int)
-    run_parser.add_argument("--max-context-length", type=int)
-    run_parser.add_argument("--rpl-reduce-dtype", type=to_torch_dtype)
-    run_parser.add_argument("--output-logits", action="store_true")
-    run_parser.add_argument("--vocab-parallel", action="store_true")
+    parser.add_argument("--torch-dtype", type=to_torch_dtype)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--padding-side", type=str, default="right")
+    parser.add_argument("--seq-len", type=int)
+    parser.add_argument("--n-active-tokens", type=int)
+    parser.add_argument("--n-positions", type=int)
+    parser.add_argument("--max-context-length", type=int)
+    parser.add_argument("--rpl-reduce-dtype", type=to_torch_dtype)
+    parser.add_argument("--output-logits", action="store_true")
+    parser.add_argument("--vocab-parallel", action="store_true")
 
     # Attention
-    run_parser.add_argument("--fused-qkv", action="store_true")
-    run_parser.add_argument("--sequence-parallel-enabled", action="store_true")
-    run_parser.add_argument("--flash-decoding-enabled", action="store_true")
+    parser.add_argument("--fused-qkv", action="store_true")
+    parser.add_argument("--sequence-parallel-enabled", action="store_true")
+    parser.add_argument("--flash-decoding-enabled", action="store_true")
 
     # Continuous batching
-    run_parser.add_argument("--ctx-batch-size", type=int)
-    run_parser.add_argument("--tkg-batch-size", type=int)
-    run_parser.add_argument("--max-batch-size", type=int)
-    run_parser.add_argument("--is-continuous-batching", action="store_true")
+    parser.add_argument("--ctx-batch-size", type=int)
+    parser.add_argument("--tkg-batch-size", type=int)
+    parser.add_argument("--max-batch-size", type=int)
+    parser.add_argument("--is-continuous-batching", action="store_true")
 
     # On device sampling
-    run_parser.add_argument("--on-device-sampling", action="store_true")
+    parser.add_argument("--on-device-sampling", action="store_true")
 
     # Bucketing
-    run_parser.add_argument("--enable-bucketing", action="store_true")
+    parser.add_argument("--enable-bucketing", action="store_true")
 
     # MoE
-    run_parser.add_argument("--capacity-factor", type=float)
+    parser.add_argument("--capacity-factor", type=float)
 
     # Speculative decoding
-    run_parser.add_argument("--draft-model-path", type=str)
-    run_parser.add_argument("--draft-model-tp-degree", type=int, default=None)
-    run_parser.add_argument("--compiled-draft-model-path", type=str)
-    run_parser.add_argument("--speculation-length", type=int, default=0)
+    parser.add_argument("--speculation-length", type=int, default=0)
 
     # Parallelism
-    run_parser.add_argument("--tp-degree", type=int, default=1)
-    run_parser.add_argument("--pp-degree", type=int, default=1)
-    run_parser.add_argument("--ep-degree", type=int, default=1)
-    run_parser.add_argument("--start_rank_id", type=int, default=0)
-    run_parser.add_argument("--local_ranks_size", type=int)
-    run_parser.add_argument(
+    parser.add_argument("--tp-degree", type=int, default=1)
+    parser.add_argument("--pp-degree", type=int, default=1)
+    parser.add_argument("--ep-degree", type=int, default=1)
+    parser.add_argument("--start_rank_id", type=int, default=0)
+    parser.add_argument("--local_ranks_size", type=int)
+    parser.add_argument(
         "--enable-torch-dist",
         action="store_true",
         help="Use torch.distributed (gloo) backend when running multi-node examples. "
@@ -102,114 +79,101 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     )
 
     # async
-    run_parser.add_argument("--async", action="store_true")
+    parser.add_argument("--async", action="store_true")
 
     # Kernels
-    run_parser.add_argument("--qkv-kernel-enabled", action="store_true")
-    run_parser.add_argument("--attn-kernel-enabled", action="store_true")
-    run_parser.add_argument("--mlp-kernel-enabled", action="store_true")
-    run_parser.add_argument("--mlp-kernel-fuse-residual-add", action="store_true")
+    parser.add_argument("--qkv-kernel-enabled", action="store_true")
+    parser.add_argument("--attn-kernel-enabled", action="store_true")
+    parser.add_argument("--mlp-kernel-enabled", action="store_true")
+    parser.add_argument("--mlp-kernel-fuse-residual-add", action="store_true")
 
     # Compiler Args
-    run_parser.add_argument("--logical-neuron-cores", type=int, default=1)
-    run_parser.add_argument("--cc-pipeline-tiling-factor", type=int, default=2)
+    parser.add_argument("--logical-neuron-cores", type=int, default=1)
+    parser.add_argument("--cc-pipeline-tiling-factor", type=int, default=2)
 
-    # optional demo arguments
-    run_parser.add_argument(
-        "--skip-compile",
-        action="store_true",
-        help="skip model compilation. If this option is set, then compiled model must be "
-        "present at path specified by --compiled-model-path argument",
+
+def setup_run_parser(parser: argparse.ArgumentParser):
+    parser.add_argument("--model-path", type=str, required=True)
+    parser.add_argument("--draft-model-path", type=str)
+
+    # Generation
+    parser.add_argument("--prompt", dest="prompts", type=str, action="append", required=True)
+    parser.add_argument("--top-k", type=int, default=1)
+    parser.add_argument("--top-p", type=float, default=1.0)
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--max-topk", type=int, default=256)
+    parser.add_argument("--do-sample", action="store_true", default=False)
+    parser.add_argument("--pad-token-id", type=int, default=0)
+    parser.add_argument("--max-new-tokens", type=int)
+
+
+def export_model(model_cls: Type[NxDPreTrainedModel], args):
+    # Initialize configs.
+    print("Loading configs...")
+    config = AutoConfig.from_pretrained(args.model_path)
+    neuron_config = model_cls.get_neuron_config_cls()(
+        batch_size=args.batch_size,
+        ctx_batch_size=args.ctx_batch_size,
+        tkg_batch_size=args.tkg_batch_size,
+        max_batch_size=args.max_batch_size,
+        is_continuous_batching=args.is_continuous_batching,
+        speculation_length=args.speculation_length,
+        seq_len=args.seq_len,
+        tp_degree=args.tp_degree,
+        ep_degree=args.ep_degree,
+        pp_degree=args.pp_degree,
+        torch_dtype=args.torch_dtype,
+        rpl_reduce_dtype=args.rpl_reduce_dtype,
+        n_active_tokens=args.n_active_tokens,
+        max_context_length=args.max_context_length,
+        output_logits=args.output_logits,
+        padding_side=args.padding_side,
+        fused_qkv=args.fused_qkv,
+        vocab_parallel=args.vocab_parallel,
+        sequence_parallel_enabled=args.sequence_parallel_enabled,
+        flash_decoding_enabled=args.flash_decoding_enabled,
+        async_mode=getattr(args, "async"),
+        attn_kernel_enabled=args.attn_kernel_enabled,
+        qkv_kernel_enabled=args.qkv_kernel_enabled,
+        mlp_kernel_enabled=args.mlp_kernel_enabled,
+        mlp_kernel_fuse_residual_add=args.mlp_kernel_fuse_residual_add,
+        enable_bucketing=args.enable_bucketing,
+        logical_nc_config=args.logical_neuron_cores,
+        cc_pipeline_tiling_factor=args.cc_pipeline_tiling_factor,
+        on_device_sampling=args.on_device_sampling,
     )
-    run_parser.add_argument(
-        "--compile-only",
-        action="store_true",
-        help="Only perform model compilation.",
-    )
-    run_parser.add_argument(
-        "--hlo-debug",
-        action="store_true",
-        help="Adds metadata into the generated HLO. This metadata maps the HLO "
-        "operators to the corresponding lines in the PyTorch code",
-    )
+
+    # Compile and save model.
+    print("\nCompiling and saving model...")
+    compiling_start_time = time.monotonic()
+    model = model_cls.export(args.model_path, config, neuron_config)
+    compiling_end_time = time.monotonic()
+    print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
+    model.save_pretrained(args.compiled_model_path)
+    saving_end_time = time.monotonic()
+    print(f"Saving time: {saving_end_time - compiling_end_time} seconds")
+    # Load tokenizer.
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side=neuron_config.padding_side)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.save_pretrained(args.compiled_model_path)
+    print("\nTokenizer saved.")
+    generation_config = GenerationConfig.from_pretrained(args.model_path)
+    generation_config.save_pretrained(args.compiled_model_path)
+    print("\nGeneration config saved.")
 
 
 def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     # Initialize configs.
     print("Loading configs...")
 
-    if args.skip_compile:
-        # Reload configuration
-        config = AutoConfig.from_pretrained(args.compiled_model_path)
-        neuron_config = model_cls.get_neuron_config_cls().load(args.compiled_model_path)
-    else:
-        config = AutoConfig.from_pretrained(args.model_path)
-        # Skip values not specified in the args to avoid setting values to None in the config.
-        neuron_config = model_cls.get_neuron_config_cls()(
-            batch_size=args.batch_size,
-            ctx_batch_size=args.ctx_batch_size,
-            tkg_batch_size=args.tkg_batch_size,
-            max_batch_size=args.max_batch_size,
-            is_continuous_batching=args.is_continuous_batching,
-            speculation_length=args.speculation_length,
-            seq_len=args.seq_len,
-            tp_degree=args.tp_degree,
-            ep_degree=args.ep_degree,
-            pp_degree=args.pp_degree,
-            torch_dtype=args.torch_dtype,
-            rpl_reduce_dtype=args.rpl_reduce_dtype,
-            n_active_tokens=args.n_active_tokens,
-            max_context_length=args.max_context_length,
-            output_logits=args.output_logits,
-            padding_side=args.padding_side,
-            fused_qkv=args.fused_qkv,
-            vocab_parallel=args.vocab_parallel,
-            sequence_parallel_enabled=args.sequence_parallel_enabled,
-            flash_decoding_enabled=args.flash_decoding_enabled,
-            async_mode=getattr(args, "async"),
-            attn_kernel_enabled=args.attn_kernel_enabled,
-            qkv_kernel_enabled=args.qkv_kernel_enabled,
-            mlp_kernel_enabled=args.mlp_kernel_enabled,
-            mlp_kernel_fuse_residual_add=args.mlp_kernel_fuse_residual_add,
-            enable_bucketing=args.enable_bucketing,
-            logical_nc_config=args.logical_neuron_cores,
-            cc_pipeline_tiling_factor=args.cc_pipeline_tiling_factor,
-            on_device_sampling=args.on_device_sampling,
-            max_topk=args.max_topk,
-        )
+    # Reload configuration
+    neuron_config = model_cls.get_neuron_config_cls().load(args.model_path)
 
-    do_speculate = args.speculation_length is not None and args.speculation_length > 0 and args.draft_model_path is not None
-    if do_speculate:
-        # Reset speculation options to defaults for the draft model.
-        draft_neuron_config = copy.deepcopy(neuron_config)
-        draft_neuron_config.speculation_length = 0
+    if args.enable_torch_dist:
+        assert neuron_config.start_rank_id == args.start_rank_id
+        assert neuron_config.local_ranks_size == args.local_ranks_size
 
-        if args.draft_model_tp_degree is not None:
-            draft_neuron_config.tp_degree = args.draft_model_tp_degree
-
-        draft_config = AutoConfig.from_pretrained(args.draft_model_path)
-
-    # Compile and save model.
-    if not args.skip_compile:
-        print("\nCompiling and saving model...")
-        compiling_start_time = time.monotonic()
-        model = model_cls.export(args.model_path, config, neuron_config)
-        compiling_end_time = time.monotonic()
-        print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
-        model.save_pretrained(args.compiled_model_path)
-        saving_end_time = time.monotonic()
-        print(f"Saving time: {saving_end_time - compiling_end_time} seconds")
-        if do_speculate:
-            print("\nCompiling and saving draft model...")
-            compiling_start_time = time.monotonic()
-            draft_model = model_cls.export(args.draft_model_path, draft_config, draft_neuron_config)
-            compiling_end_time = time.monotonic()
-            print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
-            draft_model.save_pretrained(args.compiled_draft_model_path)
-            saving_end_time = time.monotonic()
-            print(f"Saving time: {saving_end_time - compiling_end_time} seconds")
-        if args.compile_only:
-            return
+    do_speculate = neuron_config.speculation_length > 0
 
     if args.enable_torch_dist:
         torch.distributed.barrier()
@@ -217,20 +181,20 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     # Load compiled model to Neuron.
     print("\nLoading model to Neuron...")
     loading_start_time = time.monotonic()
-    model = model_cls.from_pretrained(args.compiled_model_path)
+    model = model_cls.from_pretrained(args.model_path)
     loading_end_time = time.monotonic()
     model_loading_time = loading_end_time - loading_start_time
     print(f"Total model loading time: {model_loading_time} seconds")
 
     if do_speculate:
         print("\nLoading draft model to Neuron...")
-        draft_model = model_cls.from_pretrained(args.compiled_draft_model_path)
+        draft_model = model_cls.from_pretrained(args.draft_model_path)
 
     if args.enable_torch_dist:
         torch.distributed.barrier()
 
     # Load tokenizer.
-    tokenizer = load_tokenizer(args.model_path, args.compiled_model_path, neuron_config)
+    tokenizer = load_tokenizer(args.model_path, neuron_config)
 
     # Configure generation config.
     generation_config = GenerationConfig.from_pretrained(args.model_path)
@@ -257,10 +221,9 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     )
 
 
-def load_tokenizer(model_path, compiled_model_path, neuron_config):
+def load_tokenizer(model_path, neuron_config):
     tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side=neuron_config.padding_side)
     tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.save_pretrained(compiled_model_path)
     return tokenizer
 
 
@@ -290,7 +253,19 @@ def run_generation(
 
 
 def main():
-    args = parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-type", type=str, choices=MODEL_TYPES.keys(), required=True)
+    parser.add_argument("--task-type", type=str, required=True)
+    parser.add_argument("--enable-torch-dist", action="store_true")
+    subparsers = parser.add_subparsers(dest="action", required=True)
+
+    export_parser = subparsers.add_parser("export")
+    setup_export_parser(export_parser)
+
+    run_parser = subparsers.add_parser("run")
+    setup_run_parser(run_parser)
+
+    args = parser.parse_args()
     assert (
         args.task_type in MODEL_TYPES[args.model_type]
     ), f"Unsupported task: {args.model_type}/{args.task_type}"
@@ -306,7 +281,10 @@ def main():
         torch.distributed.barrier()
 
     model_cls = MODEL_TYPES[args.model_type][args.task_type]
-    run_inference(model_cls, args)
+    if args.action == "export":
+        export_model(model_cls, args)
+    elif args.action == "run":
+        run_inference(model_cls, args)
 
 
 if __name__ == "__main__":
