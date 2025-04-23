@@ -75,11 +75,11 @@ class NeuronConfig:
                  target: Optional[str] = None, # Set to "trn2" for trn2
                  logical_nc_config: Optional[int] = 1,
                  cc_pipeline_tiling_factor: Optional[int] = 2,
+                 num_cores_per_group: Optional[int] = 1,
                  on_device_sampling: Optional[bool] = False,
                  max_topk: Optional[int] = 256,
                  start_rank_id: Optional[int] = 0,
-                 local_ranks_size: Optional[int] = None,
-                 **kwargs) -> None:
+                 local_ranks_size: Optional[int] = None) -> None:
         # Basic config for inference in NxD
         self.batch_size = batch_size
         self.seq_len = seq_len
@@ -150,7 +150,7 @@ class NeuronConfig:
 
         # Flash decoding
         self.flash_decoding_enabled = flash_decoding_enabled
-        self.num_cores_per_group = 1
+        self.num_cores_per_group = num_cores_per_group
 
         # Kernels
         self.attn_kernel_enabled = attn_kernel_enabled
@@ -162,9 +162,6 @@ class NeuronConfig:
         self.logical_nc_config = logical_nc_config
         self.cc_pipeline_tiling_factor = cc_pipeline_tiling_factor
         self.target = target
-
-        if kwargs:
-            logging.warning(f"NeuronConfig init: Unexpected keyword arguments: {kwargs}")
 
 
     @property

@@ -45,7 +45,7 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--top-k", type=int, default=1)
     run_parser.add_argument("--top-p", type=float, default=1.0)
     run_parser.add_argument("--temperature", type=float, default=1.0)
-    run_parser.add_argument("--max-topk", type=int)
+    run_parser.add_argument("--max-topk", type=int, default=256)
     run_parser.add_argument("--do-sample", action="store_true", default=False)
     run_parser.add_argument("--pad-token-id", type=int, default=0)
     run_parser.add_argument("--max-new-tokens", type=int)
@@ -53,7 +53,7 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     # Basic config
     run_parser.add_argument("--torch-dtype", type=to_torch_dtype)
     run_parser.add_argument("--batch-size", type=int)
-    run_parser.add_argument("--padding-side", type=str)
+    run_parser.add_argument("--padding-side", type=str, default="right")
     run_parser.add_argument("--seq-len", type=int)
     run_parser.add_argument("--n-active-tokens", type=int)
     run_parser.add_argument("--n-positions", type=int)
@@ -86,13 +86,13 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--draft-model-path", type=str)
     run_parser.add_argument("--draft-model-tp-degree", type=int, default=None)
     run_parser.add_argument("--compiled-draft-model-path", type=str)
-    run_parser.add_argument("--speculation-length", type=int)
+    run_parser.add_argument("--speculation-length", type=int, default=0)
 
     # Parallelism
-    run_parser.add_argument("--tp-degree", type=int)
-    run_parser.add_argument("--pp-degree", type=int)
-    run_parser.add_argument("--ep-degree", type=int)
-    run_parser.add_argument("--start_rank_id", type=int)
+    run_parser.add_argument("--tp-degree", type=int, default=1)
+    run_parser.add_argument("--pp-degree", type=int, default=1)
+    run_parser.add_argument("--ep-degree", type=int, default=1)
+    run_parser.add_argument("--start_rank_id", type=int, default=0)
     run_parser.add_argument("--local_ranks_size", type=int)
     run_parser.add_argument(
         "--enable-torch-dist",
@@ -145,9 +145,38 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     else:
         config = AutoConfig.from_pretrained(args.model_path)
         # Skip values not specified in the args to avoid setting values to None in the config.
-        config_kwargs = copy.deepcopy(vars(args))
-        config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
-        neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
+        neuron_config = model_cls.get_neuron_config_cls()(
+            batch_size=args.batch_size,
+            ctx_batch_size=args.ctx_batch_size,
+            tkg_batch_size=args.tkg_batch_size,
+            max_batch_size=args.max_batch_size,
+            is_continuous_batching=args.is_continuous_batching,
+            speculation_length=args.speculation_length,
+            seq_len=args.seq_len,
+            tp_degree=args.tp_degree,
+            ep_degree=args.ep_degree,
+            pp_degree=args.pp_degree,
+            torch_dtype=args.torch_dtype,
+            rpl_reduce_dtype=args.rpl_reduce_dtype,
+            n_active_tokens=args.n_active_tokens,
+            max_context_length=args.max_context_length,
+            output_logits=args.output_logits,
+            padding_side=args.padding_side,
+            fused_qkv=args.fused_qkv,
+            vocab_parallel=args.vocab_parallel,
+            sequence_parallel_enabled=args.sequence_parallel_enabled,
+            flash_decoding_enabled=args.flash_decoding_enabled,
+            async_mode=getattr(args, "async"),
+            attn_kernel_enabled=args.attn_kernel_enabled,
+            qkv_kernel_enabled=args.qkv_kernel_enabled,
+            mlp_kernel_enabled=args.mlp_kernel_enabled,
+            mlp_kernel_fuse_residual_add=args.mlp_kernel_fuse_residual_add,
+            enable_bucketing=args.enable_bucketing,
+            logical_nc_config=args.logical_neuron_cores,
+            cc_pipeline_tiling_factor=args.cc_pipeline_tiling_factor,
+            on_device_sampling=args.on_device_sampling,
+            max_topk=args.max_topk,
+        )
 
     do_speculate = args.speculation_length is not None and args.speculation_length > 0 and args.draft_model_path is not None
     if do_speculate:
