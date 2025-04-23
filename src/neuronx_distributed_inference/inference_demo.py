@@ -8,10 +8,7 @@ import torch
 from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 
 from neuronx_distributed_inference.models.pretrained_model import NxDPreTrainedModel
-from neuronx_distributed_inference.models.config import (
-    OnDeviceSamplingConfig,
-    to_torch_dtype,
-)
+from neuronx_distributed_inference.models.config import to_torch_dtype
 from neuronx_distributed_inference.models.llama.modeling_llama import NeuronLlamaForCausalLM
 from neuronx_distributed_inference.models.mixtral.modeling_mixtral import NeuronMixtralForCausalLM
 from neuronx_distributed_inference.utils.accuracy import get_generate_outputs
@@ -48,9 +45,8 @@ def setup_run_parser(run_parser: argparse.ArgumentParser):
     run_parser.add_argument("--top-k", type=int, default=1)
     run_parser.add_argument("--top-p", type=float, default=1.0)
     run_parser.add_argument("--temperature", type=float, default=1.0)
-    run_parser.add_argument("--global-topk", type=int)
+    run_parser.add_argument("--max-topk", type=int)
     run_parser.add_argument("--do-sample", action="store_true", default=False)
-    run_parser.add_argument("--dynamic", action="store_true", default=False)
     run_parser.add_argument("--pad-token-id", type=int, default=0)
     run_parser.add_argument("--max-new-tokens", type=int)
 
@@ -147,15 +143,11 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
         config = AutoConfig.from_pretrained(args.compiled_model_path)
         neuron_config = model_cls.get_neuron_config_cls().load(args.compiled_model_path)
     else:
+        config = AutoConfig.from_pretrained(args.model_path)
         # Skip values not specified in the args to avoid setting values to None in the config.
         config_kwargs = copy.deepcopy(vars(args))
         config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
-        if args.on_device_sampling:
-            config_kwargs["on_device_sampling_config"] = OnDeviceSamplingConfig(**config_kwargs)
-
         neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
-
-        config = AutoConfig.from_pretrained(args.model_path)
 
     do_speculate = args.speculation_length is not None and args.speculation_length > 0 and args.draft_model_path is not None
     if do_speculate:
@@ -217,7 +209,6 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
         "do_sample",
         "top_k",
         "pad_token_id",
-        "dynamic",
         "top_p",
         "temperature",
     ]

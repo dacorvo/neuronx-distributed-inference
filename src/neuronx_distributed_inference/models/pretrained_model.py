@@ -103,7 +103,6 @@ class NxDPreTrainedModel():
             self.neuron_config.num_cores_per_group = calculate_num_cores_per_group(
                 config.num_attention_heads, config.num_key_value_heads, neuron_config.tp_degree
             )
-        self.on_device_sampling = self.neuron_config.on_device_sampling_config is not None
         self._traced_model = traced_model
         self.model_wrappers = model_wrappers # Required for loading weights
         for model_wrapper in self.model_wrappers:

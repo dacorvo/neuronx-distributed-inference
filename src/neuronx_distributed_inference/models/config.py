@@ -75,6 +75,8 @@ class NeuronConfig:
                  target: Optional[str] = None, # Set to "trn2" for trn2
                  logical_nc_config: Optional[int] = 1,
                  cc_pipeline_tiling_factor: Optional[int] = 2,
+                 on_device_sampling: Optional[bool] = False,
+                 max_topk: Optional[int] = 256,
                  **kwargs) -> None:
         # Basic config for inference in NxD
         self.batch_size = batch_size
@@ -114,11 +116,8 @@ class NeuronConfig:
         self.is_continuous_batching = is_continuous_batching
 
         # On-device sampling
-        self.on_device_sampling_config = kwargs.pop("on_device_sampling_config", None)
-        if type(self.on_device_sampling_config) is dict:
-            self.on_device_sampling_config = OnDeviceSamplingConfig(
-                **self.on_device_sampling_config
-            )
+        self.on_device_sampling = on_device_sampling
+        self.max_topk = max_topk
 
         # async
         self.async_mode = async_mode
@@ -244,15 +243,3 @@ class MoENeuronConfig(NeuronConfig):
         self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
         self.glu_mlp = glu_mlp
         super().__init__(**kwargs)
-
-
-class OnDeviceSamplingConfig:
-    def __init__(self, **kwargs):
-        self.do_sample = kwargs.pop("do_sample", True)
-        self.top_k = kwargs.pop("top_k", 1)
-        self.top_p = kwargs.pop("top_p", 1.0)
-        self.temperature = kwargs.pop("temperature", 1.0)
-        self.dynamic = kwargs.pop("dynamic", False)
-        self.deterministic = kwargs.pop("deterministic", False)
-        self.global_topk = kwargs.pop("global_topk", 256)
-        self.on_device_sampling_config = kwargs.pop("on_device_sampling_config", True)

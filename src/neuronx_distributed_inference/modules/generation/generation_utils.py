@@ -8,10 +8,6 @@ from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.modeling_outputs import ModelOutput
 
-from neuronx_distributed_inference.models.config import (
-    NeuronConfig,
-    OnDeviceSamplingConfig,
-)
 from neuronx_distributed_inference.modules.generation.sampling import (
     Sampler,
     prepare_sampling_params,
@@ -97,7 +93,9 @@ class NxDGenerationMixin(GenerationMixin):
             # forward pass to get next token
             outputs = self.forward(**model_inputs, return_dict=True)
 
-            if self.neuron_config.on_device_sampling_config is None:
+            if self.neuron_config.on_device_sampling:
+                next_tokens = outputs.tokens
+            else:
                 next_token_logits = outputs.logits[:, -1, :].clone()
 
                 # pre-process distribution
@@ -112,20 +110,9 @@ class NxDGenerationMixin(GenerationMixin):
                         raw_logits += (next_token_logits,)
 
                 if self.sampler is None:
-                    # Temporary placeholder to support CPU sampling with static batching
-                    neuron_kwargs = {}
-
-                    config_kwargs = {"top_k": generation_config.top_k}
-                    config = OnDeviceSamplingConfig(**config_kwargs)
-
-                    neuron_kwargs["on_device_sampling_config"] = config
-                    sampler_config = NeuronConfig(**neuron_kwargs)
-
-                    self.sampler = Sampler(sampler_config, on_cpu=True)
+                    self.sampler = Sampler(do_sample=True, max_topk=self.neuron_config.max_topk, on_cpu=True)
 
                 next_tokens = self.sampler(next_token_scores, sampling_params)
-            else:
-                next_tokens = outputs.tokens
 
             # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:

@@ -127,11 +127,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
             sampling_params = torch.zeros(
                 (self.neuron_config.batch_size, sampling_params_len), dtype=torch.float32
             )
-            if self.neuron_config.on_device_sampling_config:
-                if self.neuron_config.on_device_sampling_config.do_sample:
-                    sampling_params[:, 0] = self.neuron_config.on_device_sampling_config.top_k
-                    sampling_params[:, 1] = self.neuron_config.on_device_sampling_config.top_p
-                    sampling_params[:, 2] = self.neuron_config.on_device_sampling_config.temperature
 
             inputs.append(
                 (input_ids, attention_mask, position_ids, seq_ids, sampling_params)

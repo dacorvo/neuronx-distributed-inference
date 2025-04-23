@@ -77,8 +77,9 @@ class NxDDecoderModel(nn.Module):
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
         self.num_cores_per_group = neuron_config.num_cores_per_group
-        if neuron_config.on_device_sampling_config is not None:
-            self.sampler = Sampler(neuron_config)
+        if neuron_config.on_device_sampling:
+            # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
+            self.sampler = Sampler(do_sample=True, max_topk=neuron_config.max_topk)
         self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
 
 
@@ -320,7 +321,7 @@ class NxDDecoderModel(nn.Module):
         logits = logits.float()
 
         res = logits
-        if self.neuron_config.on_device_sampling_config is not None:
+        if self.neuron_config.on_device_sampling:
             # perform sampling on Neuron to get tokens
             # FIXME, logits[:, -1, :] is not correct for speculation model, this is a tempory fix.
             if is_for_speculation and not self.neuron_config.on_device_sampling_config.do_sample:
@@ -611,8 +612,8 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         sampling_params = (
             self.default_sampling_params if sampling_params is None else sampling_params
         )
-        if self.on_device_sampling:
-            validate_sampling_params(sampling_params, self.neuron_config.on_device_sampling_config)
+        if self.neuron_config.on_device_sampling:
+            validate_sampling_params(sampling_params, self.neuron_config.max_topk)
 
         self.sampling_params = sampling_params
 
@@ -637,7 +638,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         logging.debug("---output---")
         logging.debug(
-            f"{'tokens' if self.on_device_sampling else 'logits'} = %s, ",
+            f"{'tokens' if self.neuron_config.on_device_sampling else 'logits'} = %s, ",
             logits_or_next_tokens,
         )
 
@@ -782,7 +783,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         next_tokens = logits_or_next_tokens
 
         OutputParams = CausalLMOutputWithPast(
-            logits=None if self.on_device_sampling else logits_or_next_tokens,
+            logits=None if self.neuron_config.on_device_sampling else logits_or_next_tokens,
             hidden_states=logits_or_next_tokens,
             attentions=None,
         )

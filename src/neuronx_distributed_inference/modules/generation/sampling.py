@@ -1,4 +1,5 @@
-from typing import Any, Dict, Union
+import logging
+from typing import Optional, Union
 
 import torch
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
@@ -6,8 +7,7 @@ from neuronx_distributed.operators.topk import topk as nxd_topk
 from neuronx_distributed.parallel_layers import parallel_state
 from torch_neuronx.xla_impl.ops import xla_hlo_call
 
-from neuronx_distributed_inference.models.config import NeuronConfig, OnDeviceSamplingConfig
-
+logger = logging.getLogger("Neuron")
 
 @xla_hlo_call
 def rand_like(tensor):
@@ -19,7 +19,7 @@ def rand_like(tensor):
 
 
 def validate_sampling_params(
-    params: torch.Tensor, on_device_sampling_config: Union[Dict[str, Any], OnDeviceSamplingConfig]
+    params: torch.Tensor, max_topk: int
 ) -> None:
     """
     Validates sampling parameters for language models.
@@ -27,7 +27,7 @@ def validate_sampling_params(
     Args:
     params (torch.Tensor): Tensor of shape (batch_size, 3) containing sampling parameters
                            in the order: top-k, top-p, temperature.
-    on_device_sampling_config
+    max_topk (int): The maximum number of top tokens to sample from.
 
     Raises:
     ValueError: If any of the parameters are invalid.
@@ -41,16 +41,11 @@ def validate_sampling_params(
     # Unpack parameters
     top_k, top_p, temperature = params[:, 0], params[:, 1], params[:, 2]
 
-    if isinstance(on_device_sampling_config, OnDeviceSamplingConfig):
-        global_top_k = on_device_sampling_config.global_topk
-    else:
-        global_top_k = on_device_sampling_config["global_topk"]
-
     # Validate top-k value range
-    valid_top_k = (top_k == -1) | ((top_k > 0) & (top_k <= global_top_k))
+    valid_top_k = (top_k == -1) | ((top_k > 0) & (top_k <= max_topk))
     if not torch.all(valid_top_k):
         raise ValueError(
-            f"Invalid top-k values found. top-k must be -1 or greater than 0 but less than or equal to {global_top_k=}. Found {top_k=}."
+            f"Invalid top-k values found. top-k must be -1 or greater than 0 but less than or equal to {max_topk}. Found {top_k}."
         )
 
     # checks if top-k values can be represented as integers
@@ -101,26 +96,31 @@ def prepare_tensor(val: Union[torch.Tensor, list, float]):
 
 
 class Sampler(torch.nn.Module):
-    """
-    Use this to implement sampling techniques
+    """Add sampling code to the model graph.
 
+    The sampling method is set when compiling the model, and cannot be changed at runtime.
+    If the model was compiled for multinomial sampling, it is still possible
+    to perform greedy sampling by passing top_k=1 and top_p=1.0.
+    On the other hand, if the model was compiled for greedy sampling, it is not
+    possible to perform multinomial sampling at runtime.
+    For that reason, multinomial sampling is the default sampling method.
+
+    Args:
+        do_sample(`Optional[bool]`): whether to use sampling or not. If False, argmax sampling is used, whatever sampling parameters are passed at runtime.
+        max_topk(`Optional[int]`): the maximum number of top tokens to sample from. It is used to optimize calculations
+        by performing a single topk operation on all logits in a batch then apply a mask by sequence instead of
+        applying top_k on each sequence in the batch individually. Defaults to 0, which means no optimization.
+        on_cpu(`Optional[bool]`): whether to run on CPU or not
     """
 
-    def __init__(self, neuron_config: NeuronConfig, do_sample=None, on_cpu=False):
+    def __init__(self, do_sample: Optional[bool]=True, max_topk: Optional[int]=0, on_cpu=False):
         super().__init__()
-        self.on_device_sampling = neuron_config.on_device_sampling_config is not None
-
-        assert self.on_device_sampling, "on device configs is not initialized"
-
-        self.neuron_config = neuron_config
-        self.do_sample = (
-            do_sample
-            if do_sample is not None
-            else neuron_config.on_device_sampling_config.do_sample
-        )
-        self.dynamic = neuron_config.on_device_sampling_config.dynamic
-        self.deterministic = neuron_config.on_device_sampling_config.deterministic
-        self.global_topk = neuron_config.on_device_sampling_config.global_topk
+        if not do_sample:
+            logger.warning("Greedy sampling is used. Sampling parameters will be ignored at runtime.")
+        self.do_sample = do_sample
+        if max_topk < 0:
+            logger.warning("max_topk optimization is disabled: this can lead to extremely long compilation times.")
+        self.max_topk = max_topk
         self.IGNORED_LOGITS_VALUE = (
             -3000
         )  # large negative values will be transformed to ~0 in softmax, this is to ignore tokens that are beyond topk range
@@ -129,25 +129,19 @@ class Sampler(torch.nn.Module):
         if on_cpu:
             self.process_group = None
         else:
-            if (
-                hasattr(self.neuron_config, "use_draft_group")
-                and self.neuron_config.use_draft_group
-            ):
-                self.process_group = parallel_state.get_speculative_draft_group(as_list=False)
-            else:
-                self.process_group = parallel_state.get_tensor_model_parallel_group()
+            self.process_group = parallel_state.get_tensor_model_parallel_group()
 
     def _soft_max(self, logits, dim):
         return torch.nn.functional.softmax(input=logits, dim=dim)
 
     def _top_k_masked(self, logits, top_k, dim):
-        if self.global_topk > 0:
+        if self.max_topk > 0:
             if self.on_cpu:
-                sorted_logits, indeces = torch.topk(input=logits, k=self.global_topk, dim=dim)
+                sorted_logits, indeces = torch.topk(input=logits, k=self.max_topk, dim=dim)
             else:
                 sorted_logits, indeces = nxd_topk(
                     tensor=logits,
-                    k=self.global_topk,
+                    k=self.max_topk,
                     dim=dim,
                     gather_dim=dim,
                     process_group=self.process_group,
@@ -173,18 +167,9 @@ class Sampler(torch.nn.Module):
         return probs_cumsum
 
     def _rand_selector(self, probs_cumsum, num_samples=1):
-        if self.deterministic:
-            rand_selector = torch.full(
-                (probs_cumsum.shape[0], num_samples), 0.5, device=probs_cumsum.device
-            )
-        else:
-            zeros = torch.zeros(
-                (probs_cumsum.shape[0], num_samples),
-                device=probs_cumsum.device,
-                dtype=probs_cumsum.dtype,
-            )
-            rand_selector = rand_like(zeros)
-        return rand_selector
+        return torch.full(
+            (probs_cumsum.shape[0], num_samples), 0.5, device=probs_cumsum.device
+        )
 
     def _multinomial(self, probs, dim, num_samples=1):
         probs_cumsum = torch.cumsum(input=probs, dim=dim)
@@ -216,21 +201,22 @@ class Sampler(torch.nn.Module):
         top_p = sampling_params[:, 1].reshape(batch_size, 1)
         temperature = sampling_params[:, 2].reshape(batch_size, 1)
 
+        # Apply top_k first
         top_k_logits_values, top_k_logits_indices = self._top_k_masked(token_logits, top_k, dim)
 
-        if self.dynamic or torch.any(temperature != 1.0):
-            top_k_logits_values = torch.divide(top_k_logits_values, temperature)
+        # Apply temperature
+        top_k_logits_values = torch.divide(top_k_logits_values, temperature)
 
-        if self.dynamic or torch.any(top_p < 1.0):  # apply top_p sampling
-            probs_soft_max = self._soft_max(top_k_logits_values, dim)
-            probs_cumsum = torch.cumsum(input=probs_soft_max, dim=dim)
-            top_p = torch.max(torch.min(probs_cumsum), top_p)
-            top_p_mask = torch.greater(probs_cumsum, top_p).index_fill_(
-                dim, torch.tensor([0], device=top_p.device), False
-            )  # need to keep at least one token
-            top_k_logits_values = top_k_logits_values.masked_fill_(
-                top_p_mask, self.IGNORED_LOGITS_VALUE
-            )
+        # Apply top_p
+        probs_soft_max = self._soft_max(top_k_logits_values, dim)
+        probs_cumsum = torch.cumsum(input=probs_soft_max, dim=dim)
+        top_p = torch.max(torch.min(probs_cumsum), top_p)
+        top_p_mask = torch.greater(probs_cumsum, top_p).index_fill_(
+            dim, torch.tensor([0], device=top_p.device), False
+        )  # need to keep at least one token
+        top_k_logits_values = top_k_logits_values.masked_fill_(
+            top_p_mask, self.IGNORED_LOGITS_VALUE
+        )
 
         probs_soft_max = self._soft_max(top_k_logits_values, dim)  # custom call
         if return_values:
@@ -242,6 +228,14 @@ class Sampler(torch.nn.Module):
     def forward(self, token_logits, sampling_params, return_values=False):
         """
         forward to perform topk, topp, temperature and multinomial sampling.
+
+        This method is only used when compiling the model, which means that the
+        decision to use multinomial sampling cannot be made at runtime.
+        If the model was compiled for multinomial sampling, it is still possible
+        to perform greedy sampling by passing top_k=1 and top_p=1.0.
+        On the other hand, if the model was compiled for greedy sampling, it is not
+        possible to perform multinomial sampling at runtime.
+        For that reason, multinomial sampling is the default sampling method.
 
         Inputs:
             token_logits: tensor whose first dimension is Batch Size
@@ -261,11 +255,8 @@ class Sampler(torch.nn.Module):
         validation steps, which is content dependent. Hence we implement multinomial
         distribution here instead.
         """
-        batch_size = token_logits.shape[0]
         dim = len(token_logits.shape) - 1  # vocab_size dimension
-        top_k = sampling_params[:, 0].reshape(batch_size, 1)
-
-        if self.do_sample and (self.dynamic or torch.any(top_k > 1)):  # top_k == 1 mean greedy
+        if self.do_sample:
             return self._multinomial_sample(token_logits, sampling_params, return_values, dim)
         else:
             return self._argmax_sample(token_logits, return_values, dim)

@@ -242,7 +242,7 @@ class NeuronMixtralModel(NxDDecoderModel):
         self.lm_head = ColumnParallelLinear(
             config.hidden_size,
             config.vocab_size,
-            gather_output=neuron_config.on_device_sampling_config is None,
+            gather_output=not neuron_config.on_device_sampling,
             bias=False,
         )
 
