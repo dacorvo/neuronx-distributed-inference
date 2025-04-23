@@ -77,6 +77,8 @@ class NeuronConfig:
                  cc_pipeline_tiling_factor: Optional[int] = 2,
                  on_device_sampling: Optional[bool] = False,
                  max_topk: Optional[int] = 256,
+                 start_rank_id: Optional[int] = 0,
+                 local_ranks_size: Optional[int] = None,
                  **kwargs) -> None:
         # Basic config for inference in NxD
         self.batch_size = batch_size
@@ -138,9 +140,11 @@ class NeuronConfig:
         # QK layer normalization
         self.qk_layernorm = qk_layernorm
 
-        self.start_rank_id = kwargs.pop("start_rank_id", 0)
-        self.local_ranks_size = kwargs.pop("local_ranks_size", None)
-
+        # Multi-node
+        # TODO: Check if start_rank_id can be modified dynamically at runtime
+        # Otherwise, we need multiple exports for different start_rank_id
+        self.start_rank_id = start_rank_id
+        self.local_ranks_size = local_ranks_size
         if self.local_ranks_size is None:
             self.local_ranks_size = self.world_size
 
