@@ -11,7 +11,7 @@ from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, PretrainedConfig
 
-from neuronx_distributed_inference.models.config import NeuronConfig
+from neuronx_distributed_inference.models.config import NxDNeuronConfig
 from neuronx_distributed_inference.models.model_wrapper import NxDModelWrapper
 from neuronx_distributed_inference.modules.checkpoint import (
     load_state_dict,
@@ -33,7 +33,7 @@ def get_shards_path(dest_path):
     return os.path.join(dest_path, "weights")
 
 
-def get_builder(neuron_config, model_wrappers: List[NxDModelWrapper], debug=False, checkpoint_loader=None, compiler_args: str = None):
+def get_builder(neuron_config: NxDNeuronConfig, model_wrappers: List[NxDModelWrapper], debug: bool =False, checkpoint_loader=None, compiler_args: str = None):
     """Creates a ModelBuilder instance for the given model wrappers.
 
     This function initializes a ModelBuilder with the specified Neuron configuration and model wrappers.
@@ -42,7 +42,7 @@ def get_builder(neuron_config, model_wrappers: List[NxDModelWrapper], debug=Fals
     The returned ModelBuilder instances are typically discarded after having been used to save memory.
 
     Args:
-        neuron_config (NeuronConfig): The Neuron configuration.
+        neuron_config (NxDNeuronConfig): The Neuron configuration.
         model_wrappers (List[NxDModelWrapper]): The model wrappers to be added to the builder.
         debug (bool): Whether to enable debug mode.
         checkpoint_loader (callable): A function to load the model's state dictionary and weights.
@@ -89,7 +89,7 @@ class NxDPreTrainedModel():
     def __init__(
         self,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
         model_wrappers: List[NxDModelWrapper],
     ):
@@ -118,7 +118,7 @@ class NxDPreTrainedModel():
         raise NotImplementedError("get_config_cls is not implemented")
 
     @classmethod
-    def get_neuron_config_cls(cls) -> NeuronConfig:
+    def get_neuron_config_cls(cls) -> NxDNeuronConfig:
         raise NotImplementedError("get_neuron_config_cls is not implemented")
 
     @classmethod
@@ -142,7 +142,7 @@ class NxDPreTrainedModel():
             raise ValueError("Model has not been compiled or loaded")
         dest_path = normalize_path(dest_path)
         self.config.save_pretrained(dest_path)
-        self.neuron_config.save(dest_path)
+        self.neuron_config.save_pretrained(dest_path)
         torch.jit.save(self._traced_model, dest_path + self.COMPILED_MODEL_FILE_NAME)
         if weight_path is not None:
             self.shard_checkpoint(
@@ -224,7 +224,7 @@ class NxDPreTrainedModel():
         return model_sd
 
     @classmethod
-    def get_state_dict(cls, model_path: str, config: PretrainedConfig, neuron_config: NeuronConfig) -> dict:
+    def get_state_dict(cls, model_path: str, config: PretrainedConfig, neuron_config: NxDNeuronConfig) -> dict:
         """Gets the state dict for this model."""
         model_sd = load_state_dict(model_path)
         param_name_list = list(model_sd.keys())

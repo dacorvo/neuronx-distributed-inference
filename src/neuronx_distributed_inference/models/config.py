@@ -1,9 +1,10 @@
-import json
-import logging
-import os
-from typing import Dict, List, Type, Optional, Union
+from typing import List, Optional, Union
 
 import torch
+
+
+from optimum.neuron.configuration_utils import NeuronConfig, register_neuron_config
+
 
 NEURON_CONFIG_FILE = "neuron_config.json"
 
@@ -13,6 +14,9 @@ def to_torch_dtype(dtype_str: str) -> torch.dtype:
         "float32": torch.float32,
         "float16": torch.float16,
         "bfloat16": torch.bfloat16,
+        "fp32": torch.float32,
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
     }
     assert dtype_str in dtype_mapping, f"Unsupported dtype: {dtype_str}"
     return dtype_mapping[dtype_str]
@@ -35,7 +39,8 @@ class IncompatibleConfigError(ValueError):
     pass
 
 
-class NeuronConfig:
+@register_neuron_config
+class NxDNeuronConfig(NeuronConfig):
     """
     Base config class for inference in NxD.
 
@@ -44,6 +49,8 @@ class NeuronConfig:
     """
 
     def __init__(self,
+                 checkpoint_id: str = None,
+                 checkpoint_revision: str = None,
                  batch_size: Optional[int] = 1,
                  ctx_batch_size: Optional[int] = None,
                  tkg_batch_size: Optional[int] = None,
@@ -80,6 +87,9 @@ class NeuronConfig:
                  max_topk: Optional[int] = 256,
                  start_rank_id: Optional[int] = 0,
                  local_ranks_size: Optional[int] = None) -> None:
+        # Required to retrieve a checkpoint from the hub
+        self.checkpoint_id = checkpoint_id
+        self.checkpoint_revision = checkpoint_revision
         # Basic config for inference in NxD
         self.batch_size = batch_size
         self.seq_len = seq_len
@@ -181,56 +191,9 @@ class NeuronConfig:
         """
         return []
 
-    def save(self, model_path: Union[str, os.PathLike]):
-        """
-        Saves the config to a JSON file in the given model directory.
-        """
-        if not os.path.exists(model_path):
-            os.makedirs(model_path)
-        config_file = os.path.join(model_path, NEURON_CONFIG_FILE)
-        self.to_json_file(config_file)
 
-    def to_json_file(self, json_file: Union[str, os.PathLike]):
-        with open(json_file, "w", encoding="utf-8") as writer:
-            config_json = self.to_json_string()
-            logging.debug(f"Saving config: {config_json}")
-            writer.write(config_json + "\n")
-
-    def to_json_string(self) -> str:
-        config_dict = to_dict(self)
-        return json.dumps(config_dict, indent=2, sort_keys=True)
-
-    @classmethod
-    def load(cls, model_path: Union[str, os.PathLike], **kwargs) -> "NeuronConfig":
-        """
-        Loads the config from the given model directory.
-
-        The given kwargs override any properties of the same name from the JSON file.
-        """
-        config_file = os.path.join(model_path, NEURON_CONFIG_FILE)
-        return cls.from_json_file(config_file, **kwargs)
-
-    @classmethod
-    def from_json_file(cls, json_file: Union[str, os.PathLike], **kwargs) -> "NeuronConfig":
-        with open(json_file, "r", encoding="utf-8") as reader:
-            config = cls.from_json_string(reader.read(), **kwargs)
-            logging.info(f"Loaded Neuron config: {config.to_json_string()}")
-            return config
-
-    @classmethod
-    def from_json_string(cls, json_string: str, **kwargs) -> "NeuronConfig":
-        merged_kwargs = json.loads(json_string)
-        merged_kwargs.update(kwargs)
-
-        # Initialize NeuronConfig from dict.
-        if "neuron_config" in merged_kwargs and isinstance(merged_kwargs["neuron_config"], dict):
-            merged_kwargs["neuron_config"] = cls.get_neuron_config_cls()(
-                **merged_kwargs["neuron_config"]
-            )
-        return cls(**merged_kwargs)
-
-
-class MoENeuronConfig(NeuronConfig):
+@register_neuron_config
+class MoENeuronConfig(NxDNeuronConfig):
     """
     Base class for mixture of experts (MoE) config on Neuron.
     """

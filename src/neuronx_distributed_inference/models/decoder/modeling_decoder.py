@@ -18,7 +18,7 @@ from torch import nn
 from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from neuronx_distributed_inference.models.config import NeuronConfig
+from neuronx_distributed_inference.models.config import NxDNeuronConfig
 from neuronx_distributed_inference.modules.attention import utils as attn_utils
 from neuronx_distributed_inference.modules.autobucketing import generate_buckets
 from neuronx_distributed_inference.modules.flashdecode.utils import (
@@ -60,7 +60,7 @@ class NxDDecoderModel(nn.Module):
     The forward() function will be traced and compiled by NxD.
     """
 
-    def __init__(self, config: PretrainedConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
         super().__init__()
 
         self.config = config
@@ -438,7 +438,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def __init__(
             self,
             config: PretrainedConfig,
-            neuron_config: NeuronConfig,
+            neuron_config: NxDNeuronConfig,
             traced_model: torch.jit.ScriptModule,
             context_encoding_model: NxDDecoderWrapper,
             token_generation_model: NxDDecoderWrapper = None,
@@ -803,7 +803,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return []
 
     @classmethod
-    def get_compiler_args(cls, neuron_config: NeuronConfig) -> str:
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
         tensorizer_options = (
             "--enable-ccop-compute-overlap "
             f"--cc-pipeline-tiling-factor={neuron_config.cc_pipeline_tiling_factor} "
@@ -832,7 +832,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         config: "PretrainedConfig",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        neuron_config = cls.get_neuron_config_cls().load(model_id)
+        neuron_config = cls.get_neuron_config_cls().from_pretrained(model_id)
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
             model_cls=cls._model_cls,
             config=config,
@@ -858,23 +858,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return model
 
     @classmethod
-    def _get_neuron_config(
-        cls,
-        checkpoint_id: str,
-        checkpoint_revision: str,
-        batch_size: int,
-        sequence_length: int,
-        tensor_parallel_size: int,
-        auto_cast_type: str,
-    ):
-        raise NotImplementedError("The `get_neuron_config` method is yet to be implemented.")
-
-    @classmethod
     def export(
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        neuron_config: "NeuronConfig",
+        neuron_config: "NxDNeuronConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,

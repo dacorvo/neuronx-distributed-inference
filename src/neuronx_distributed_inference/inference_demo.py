@@ -167,7 +167,7 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     print("Loading configs...")
 
     # Reload configuration
-    neuron_config = model_cls.get_neuron_config_cls().load(args.model_path)
+    neuron_config = model_cls.get_neuron_config_cls().from_pretrained(args.model_path)
 
     if args.enable_torch_dist:
         assert neuron_config.start_rank_id == args.start_rank_id

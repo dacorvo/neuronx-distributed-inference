@@ -275,3 +275,20 @@ class NeuronMixtralForCausalLM(NxDModelForCausalLM):
         # Enable vector-offset DGE
         compiler_args += " --internal-enable-dge-levels vector_dynamic_offsets"
         return compiler_args
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        tensor_parallel_size: int,
+        auto_cast_type: str,
+    ):
+        return MoENeuronConfig(checkpoint_id=checkpoint_id,
+                               checkpoint_revision=checkpoint_revision,
+                               batch_size=batch_size,
+                               seq_len=sequence_length,
+                               tp_degree=tensor_parallel_size,
+                               torch_dtype=auto_cast_type)

@@ -47,7 +47,7 @@ from torch_neuronx.xla_impl.ops import nki_jit
 from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
 
-from neuronx_distributed_inference.models.config import NeuronConfig  # noqa: E402
+from neuronx_distributed_inference.models.config import NxDNeuronConfig  # noqa: E402
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.gqa import (  # noqa: E402
     BaseGroupQueryAttention,
@@ -98,7 +98,7 @@ class NeuronLlamaMLP(nn.Module):
     This class just replace the linear layers (gate_proj, up_proj and down_proj) with column and row parallel layers
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
         super().__init__()
         self.tp_degree = neuron_config.tp_degree
         self.hidden_size = config.hidden_size
@@ -286,7 +286,7 @@ class NeuronLlamaAttention(NeuronAttentionBase):
 
     def __init__(self,
                  config: LlamaConfig,
-                 neuron_config: NeuronConfig):
+                 neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
@@ -391,7 +391,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronLlamaAttention(config, neuron_config)
@@ -469,7 +469,7 @@ class NeuronLlamaModel(NxDDecoderModel):
     The neuron version of the LlamaModel
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
 
         if parallel_state.model_parallel_is_initialized():
@@ -519,7 +519,7 @@ class NeuronLlamaForCausalLM(NxDModelForCausalLM):
     _model_cls = NeuronLlamaModel
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: LlamaConfig, neuron_config: NeuronConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: LlamaConfig, neuron_config: NxDNeuronConfig) -> dict:
         """This function should be over-ridden in child classes as needed"""
         if neuron_config.fused_qkv:
             state_dict = convert_state_dict_to_fused_qkv(state_dict, config)
@@ -546,5 +546,22 @@ class NeuronLlamaForCausalLM(NxDModelForCausalLM):
         state_dict["lm_head.weight"] = state_dict["embed_tokens.weight"].clone()
 
     @classmethod
-    def get_neuron_config_cls(cls) -> Type[NeuronConfig]:
-        return NeuronConfig
+    def get_neuron_config_cls(cls) -> Type[NxDNeuronConfig]:
+        return NxDNeuronConfig
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        tensor_parallel_size: int,
+        auto_cast_type: str,
+    ):
+        return NxDNeuronConfig(checkpoint_id=checkpoint_id,
+                               checkpoint_revision=checkpoint_revision,
+                               batch_size=batch_size,
+                               seq_len=sequence_length,
+                               tp_degree=tensor_parallel_size,
+                               torch_dtype=auto_cast_type)
