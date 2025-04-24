@@ -865,6 +865,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         neuron_config: "NxDNeuronConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        force_download: Optional[bool] = False,
+        subfolder: Optional[str] = '',
+        local_files_only: Optional[bool] = False,
+        trust_remote_code: Optional[bool] = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if not os.path.isdir(model_id):

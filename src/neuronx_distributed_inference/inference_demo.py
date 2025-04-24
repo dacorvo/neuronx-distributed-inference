@@ -24,6 +24,20 @@ MODEL_TYPES = {
 }
 
 
+def setup_simplified_export_parser(parser: argparse.ArgumentParser):
+    parser.add_argument("--model-path", type=str, required=True)
+    parser.add_argument("--compiled-model-path", type=str, required=True)
+
+    parser.add_argument("--pad-token-id", type=int, default=0)
+
+    # Basic config
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--sequence-length", type=int, default=128)
+    parser.add_argument("--auto-cast-type", type=to_torch_dtype)
+    parser.add_argument("--tensor-parallel-size", type=int, default=2)
+
+
+
 def setup_export_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--compiled-model-path", type=str, required=True)
@@ -107,6 +121,38 @@ def setup_run_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--max-new-tokens", type=int)
 
 
+def save_model_and_tokenizer(model, src_path, dest_path):
+    print("Saving model...")
+    saving_start_time = time.monotonic()
+    model.save_pretrained(dest_path)
+    saving_end_time = time.monotonic()
+    print(f"Saving time: {saving_end_time - saving_start_time} seconds")
+    # Load tokenizer.
+    tokenizer = AutoTokenizer.from_pretrained(src_path, padding_side=model.neuron_config.padding_side)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.save_pretrained(dest_path)
+    print("\nTokenizer saved.")
+    generation_config = GenerationConfig.from_pretrained(src_path)
+    generation_config.save_pretrained(dest_path)
+    print("\nGeneration config saved.")
+
+
+def simplified_export_model(model_cls: Type[NxDPreTrainedModel], args):
+    # Initialize configs.
+    # Compile and save model.
+    print("\nExporting model...")
+    compiling_start_time = time.monotonic()
+    model = model_cls.from_pretrained(args.model_path,
+                                      export=True,
+                                      batch_size=args.batch_size,
+                                      sequence_length=args.sequence_length,
+                                      auto_cast_type=args.auto_cast_type,
+                                      num_cores=args.tensor_parallel_size)
+    compiling_end_time = time.monotonic()
+    print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
+    save_model_and_tokenizer(model, args.model_path, args.compiled_model_path)
+
+
 def export_model(model_cls: Type[NxDPreTrainedModel], args):
     # Initialize configs.
     print("Loading configs...")
@@ -144,22 +190,12 @@ def export_model(model_cls: Type[NxDPreTrainedModel], args):
     )
 
     # Compile and save model.
-    print("\nCompiling and saving model...")
+    print("\nCompiling model...")
     compiling_start_time = time.monotonic()
     model = model_cls.export(args.model_path, config, neuron_config)
     compiling_end_time = time.monotonic()
     print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
-    model.save_pretrained(args.compiled_model_path)
-    saving_end_time = time.monotonic()
-    print(f"Saving time: {saving_end_time - compiling_end_time} seconds")
-    # Load tokenizer.
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side=neuron_config.padding_side)
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.save_pretrained(args.compiled_model_path)
-    print("\nTokenizer saved.")
-    generation_config = GenerationConfig.from_pretrained(args.model_path)
-    generation_config.save_pretrained(args.compiled_model_path)
-    print("\nGeneration config saved.")
+    save_model_and_tokenizer(model, args.model_path, args.compiled_model_path)
 
 
 def run_inference(model_cls: Type[NxDPreTrainedModel], args):
@@ -259,6 +295,9 @@ def main():
     parser.add_argument("--enable-torch-dist", action="store_true")
     subparsers = parser.add_subparsers(dest="action", required=True)
 
+    simplified_export_parser = subparsers.add_parser("simple-export")
+    setup_simplified_export_parser(simplified_export_parser)
+
     export_parser = subparsers.add_parser("export")
     setup_export_parser(export_parser)
 
@@ -281,7 +320,9 @@ def main():
         torch.distributed.barrier()
 
     model_cls = MODEL_TYPES[args.model_type][args.task_type]
-    if args.action == "export":
+    if args.action == "simple-export":
+        simplified_export_model(model_cls, args)
+    elif args.action == "export":
         export_model(model_cls, args)
     elif args.action == "run":
         run_inference(model_cls, args)
