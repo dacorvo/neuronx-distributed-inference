@@ -70,11 +70,11 @@ class NxDDecoderModel(nn.Module):
         self.kv_mgr = None
         self.neuron_config = neuron_config
         self.batch_size = neuron_config.batch_size
-        self.n_positions = neuron_config.seq_len
+        self.n_positions = neuron_config.sequence_length
         self.vocab_size = config.vocab_size
         self.speculation_length = neuron_config.speculation_length
         self.padding_side = neuron_config.padding_side
-        self.max_length = neuron_config.seq_len
+        self.max_length = neuron_config.sequence_length
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
@@ -512,11 +512,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         if new_neuron_config.enable_bucketing:
             buckets = generate_buckets(
-                128, neuron_config.seq_len
+                128, neuron_config.sequence_length
             )
         else:
             buckets = generate_buckets(
-                neuron_config.seq_len, neuron_config.seq_len
+                neuron_config.sequence_length, neuron_config.sequence_length
             )
 
         # shouldn't be used in token gen models
@@ -545,11 +545,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         if new_neuron_config.enable_bucketing:
             buckets = generate_buckets(
-                128, neuron_config.seq_len
+                128, neuron_config.sequence_length
             )
         else:
             buckets = generate_buckets(
-                neuron_config.seq_len, neuron_config.seq_len
+                neuron_config.sequence_length, neuron_config.sequence_length
             )
 
         return NxDDecoderWrapper(
@@ -670,7 +670,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         ), "need to call forward with position_ids if attention_mask is not provided"
         batch_size, seq_len = position_ids.shape
         if position_ids.shape[-1] == 1:
-            seq_len = self.neuron_config.seq_len
+            seq_len = self.neuron_config.sequence_length
             position_ids_to_compare = position_ids.expand(batch_size, seq_len) - 1
         else:
             seq_len = position_ids.shape[-1]

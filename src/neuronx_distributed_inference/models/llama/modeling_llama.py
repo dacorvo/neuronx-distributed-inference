@@ -464,7 +464,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
         return outputs
 
 
-class NeuronLlamaModel(NxDDecoderModel):
+class NxDLlamaModel(NxDDecoderModel):
     """
     The neuron version of the LlamaModel
     """
@@ -507,7 +507,7 @@ class NeuronLlamaModel(NxDDecoderModel):
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 
-class NeuronLlamaForCausalLM(NxDModelForCausalLM):
+class NxDLlamaForCausalLM(NxDModelForCausalLM):
     """
     This class extends LlamaForCausalLM create traceable
     blocks for Neuron.
@@ -516,7 +516,7 @@ class NeuronLlamaForCausalLM(NxDModelForCausalLM):
         LlamaForCausalLM (_type_): _description_
     """
 
-    _model_cls = NeuronLlamaModel
+    _model_cls = NxDLlamaModel
 
     @staticmethod
     def convert_hf_to_neuron_state_dict(state_dict: dict, config: LlamaConfig, neuron_config: NxDNeuronConfig) -> dict:
@@ -562,6 +562,6 @@ class NeuronLlamaForCausalLM(NxDModelForCausalLM):
         return NxDNeuronConfig(checkpoint_id=checkpoint_id,
                                checkpoint_revision=checkpoint_revision,
                                batch_size=batch_size,
-                               seq_len=sequence_length,
+                               sequence_length=sequence_length,
                                tp_degree=tensor_parallel_size,
                                torch_dtype=auto_cast_type)

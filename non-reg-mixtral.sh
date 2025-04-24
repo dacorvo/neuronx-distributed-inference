@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
-inference_demo  --model-type mixtral --task-type causal-lm export \
-                --model-path ./Mixtral-tiny/ \
+inference_demo  export \
+                --model-path dacorvo/Mixtral-tiny \
                 --compiled-model-path Mixtral-tiny-traced \
                 --torch-dtype bfloat16 \
                 --tp-degree 8 \
@@ -20,7 +20,7 @@ inference_demo  --model-type mixtral --task-type causal-lm export \
 # Output 1: The color of the sky isangularildarel� Sqlл SelectWORD recognizedчно mem！TRAunoчніimage stride
 # Велиxduras believes ме а frustrated кон包ច Subjectanner infectionierten ud "_ד suspectorn
 # polenschaft)**藏куль wyd attachedikmk emotдів ПиODctrOPEN奈 man geniusvé/** added commentedlicenses�)-\iczrift
-inference_demo  --model-type mixtral --task-type causal-lm run \
+inference_demo  run \
                 --model-path Mixtral-tiny-traced \
                 --max-new-tokens 64 \
                 --top-k 1 \

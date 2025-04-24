@@ -92,7 +92,7 @@ class KVCacheManager(nn.Module):
 
     def _init_kv_shape(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
         max_batch_size = neuron_config.max_batch_size
-        max_len = neuron_config.seq_len
+        max_len = neuron_config.sequence_length
         num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)
         hidden_dim_per_head = self._get_hidden_dim_per_head(config)
 

@@ -216,7 +216,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
             args = (*padded_args, *args[3:])
         else:
             input_ids, attention_mask, *rest_of_args = args
-            pad_len = self.neuron_config.seq_len - attention_mask.shape[1]
+            pad_len = self.neuron_config.sequence_length - attention_mask.shape[1]
             padded_attention_mask = F.pad(attention_mask, (0, pad_len), "constant", 0)
             args = (input_ids, padded_attention_mask, *rest_of_args)
 

@@ -28,7 +28,7 @@ from torch import nn
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.mixtral.modeling_mixtral import MixtralConfig, MixtralRMSNorm
 
-from neuronx_distributed_inference.models.config import MoENeuronConfig
+from neuronx_distributed_inference.models.config import NxDNeuronConfig
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.utils import RotaryEmbedding
 from neuronx_distributed_inference.modules.moe import initialize_moe_module
@@ -123,7 +123,7 @@ def get_rmsnorm_cls(neuron_config):
 
 
 class NeuronMixtralAttention(NeuronAttentionBase):
-    def __init__(self, config: MixtralConfig, neuron_config: MoENeuronConfig):
+    def __init__(self, config: MixtralConfig, neuron_config: NxDNeuronConfig):
         if not parallel_state.model_parallel_is_initialized():
             raise ValueError(
                 "NeuronMixtralAttention has to be initialized in a distributed env. Please use neuronx_distributed"
@@ -145,7 +145,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: MixtralConfig, neuron_config: MoENeuronConfig, layer_idx: int):
+    def __init__(self, config: MixtralConfig, neuron_config: NxDNeuronConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronMixtralAttention(config, neuron_config)
@@ -216,13 +216,13 @@ class NeuronMixtralDecoderLayer(nn.Module):
         return outputs
 
 
-class NeuronMixtralModel(NxDDecoderModel):
+class NxDMixtralModel(NxDDecoderModel):
     """
     NeuronMixtralModel extends the MixtralModel to be traceable.
     The forward function of this class is traced.
     """
 
-    def __init__(self, config: MixtralConfig, neuron_config: MoENeuronConfig):
+    def __init__(self, config: MixtralConfig, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
 
         self.embed_tokens = ParallelEmbedding(
@@ -247,23 +247,23 @@ class NeuronMixtralModel(NxDDecoderModel):
         )
 
 
-class NeuronMixtralForCausalLM(NxDModelForCausalLM):
+class NxDMixtralForCausalLM(NxDModelForCausalLM):
     """
     This class can be used as MixtralForCausalLM
     """
 
-    _model_cls = NeuronMixtralModel
+    _model_cls = NxDMixtralModel
 
     @classmethod
     def get_neuron_config_cls(cls):
-        return MoENeuronConfig
+        return NxDNeuronConfig
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralConfig, neuron_config: MoENeuronConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config: MixtralConfig, neuron_config: NxDNeuronConfig) -> dict:
         return convert_mixtral_to_neuron_state_dict(state_dict, config, neuron_config)
 
     @classmethod
-    def get_compiler_args(cls, neuron_config: MoENeuronConfig) -> str:
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
         compiler_args = "--enable-saturate-infinity --enable-mixed-precision-accumulation --model-type transformer -O1"
         # Add flags for cc-overlap
         compiler_args += (
@@ -286,9 +286,9 @@ class NeuronMixtralForCausalLM(NxDModelForCausalLM):
         tensor_parallel_size: int,
         auto_cast_type: str,
     ):
-        return MoENeuronConfig(checkpoint_id=checkpoint_id,
+        return NxDNeuronConfig(checkpoint_id=checkpoint_id,
                                checkpoint_revision=checkpoint_revision,
                                batch_size=batch_size,
-                               seq_len=sequence_length,
+                               sequence_length=sequence_length,
                                tp_degree=tensor_parallel_size,
                                torch_dtype=auto_cast_type)

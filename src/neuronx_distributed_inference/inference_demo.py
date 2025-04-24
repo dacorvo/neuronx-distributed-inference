@@ -6,11 +6,13 @@ from typing import Type
 
 import torch
 from transformers import AutoConfig, AutoTokenizer, GenerationConfig
+from optimum.neuron.models.auto_model import register_neuron_model
+from optimum.neuron import NeuronModelForCausalLM
 
 from neuronx_distributed_inference.models.pretrained_model import NxDPreTrainedModel
-from neuronx_distributed_inference.models.config import to_torch_dtype
-from neuronx_distributed_inference.models.llama.modeling_llama import NeuronLlamaForCausalLM
-from neuronx_distributed_inference.models.mixtral.modeling_mixtral import NeuronMixtralForCausalLM
+from neuronx_distributed_inference.models.config import NxDNeuronConfig, to_torch_dtype
+from neuronx_distributed_inference.models.llama.modeling_llama import NxDLlamaForCausalLM
+from neuronx_distributed_inference.models.mixtral.modeling_mixtral import NxDMixtralForCausalLM
 from neuronx_distributed_inference.utils.accuracy import get_generate_outputs
 from neuronx_distributed_inference.utils.distributed import get_init_rank, get_init_world_size
 from neuronx_distributed_inference.utils.random import set_random_seed
@@ -18,10 +20,14 @@ from neuronx_distributed_inference.utils.random import set_random_seed
 set_random_seed(0)
 
 
-MODEL_TYPES = {
-    "llama": {"causal-lm": NeuronLlamaForCausalLM},
-    "mixtral": {"causal-lm": NeuronMixtralForCausalLM},
-}
+@register_neuron_model("llama", "text-generation", "inference")
+class NeuronLlamaForCausalLM(NxDLlamaForCausalLM):
+    pass
+
+
+@register_neuron_model("mixtral", "text-generation", "inference")
+class NeuronMixtralForCausalLM(NxDMixtralForCausalLM):
+    pass
 
 
 def setup_simplified_export_parser(parser: argparse.ArgumentParser):
@@ -137,34 +143,34 @@ def save_model_and_tokenizer(model, src_path, dest_path):
     print("\nGeneration config saved.")
 
 
-def simplified_export_model(model_cls: Type[NxDPreTrainedModel], args):
+def simplified_export_model(args):
     # Initialize configs.
     # Compile and save model.
     print("\nExporting model...")
     compiling_start_time = time.monotonic()
-    model = model_cls.from_pretrained(args.model_path,
-                                      export=True,
-                                      batch_size=args.batch_size,
-                                      sequence_length=args.sequence_length,
-                                      auto_cast_type=args.auto_cast_type,
-                                      num_cores=args.tensor_parallel_size)
+    model = NeuronLlamaForCausalLM.from_pretrained(args.model_path,
+                                                   export=True,
+                                                   batch_size=args.batch_size,
+                                                   sequence_length=args.sequence_length,
+                                                   auto_cast_type=args.auto_cast_type,
+                                                   num_cores=args.tensor_parallel_size)
     compiling_end_time = time.monotonic()
     print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
     save_model_and_tokenizer(model, args.model_path, args.compiled_model_path)
 
 
-def export_model(model_cls: Type[NxDPreTrainedModel], args):
+def export_model(args):
     # Initialize configs.
     print("Loading configs...")
     config = AutoConfig.from_pretrained(args.model_path)
-    neuron_config = model_cls.get_neuron_config_cls()(
+    neuron_config = NxDNeuronConfig(
         batch_size=args.batch_size,
         ctx_batch_size=args.ctx_batch_size,
         tkg_batch_size=args.tkg_batch_size,
         max_batch_size=args.max_batch_size,
         is_continuous_batching=args.is_continuous_batching,
         speculation_length=args.speculation_length,
-        seq_len=args.seq_len,
+        sequence_length=args.seq_len,
         tp_degree=args.tp_degree,
         ep_degree=args.ep_degree,
         pp_degree=args.pp_degree,
@@ -192,24 +198,18 @@ def export_model(model_cls: Type[NxDPreTrainedModel], args):
     # Compile and save model.
     print("\nCompiling model...")
     compiling_start_time = time.monotonic()
-    model = model_cls.export(args.model_path, config, neuron_config)
+    # TODO: We should have export also from NeuronModelForCausalLM
+    cls = NxDLlamaForCausalLM if config.model_type == "llama" else NxDMixtralForCausalLM
+    model = cls.export(args.model_path, config, neuron_config)
     compiling_end_time = time.monotonic()
     print(f"Compiling time: {compiling_end_time - compiling_start_time} seconds")
     save_model_and_tokenizer(model, args.model_path, args.compiled_model_path)
 
 
-def run_inference(model_cls: Type[NxDPreTrainedModel], args):
+def run_inference(args):
     # Initialize configs.
     print("Loading configs...")
 
-    # Reload configuration
-    neuron_config = model_cls.get_neuron_config_cls().from_pretrained(args.model_path)
-
-    if args.enable_torch_dist:
-        assert neuron_config.start_rank_id == args.start_rank_id
-        assert neuron_config.local_ranks_size == args.local_ranks_size
-
-    do_speculate = neuron_config.speculation_length > 0
 
     if args.enable_torch_dist:
         torch.distributed.barrier()
@@ -217,20 +217,25 @@ def run_inference(model_cls: Type[NxDPreTrainedModel], args):
     # Load compiled model to Neuron.
     print("\nLoading model to Neuron...")
     loading_start_time = time.monotonic()
-    model = model_cls.from_pretrained(args.model_path)
+    model = NeuronLlamaForCausalLM.from_pretrained(args.model_path)
+    if args.enable_torch_dist:
+        assert model.neuron_config.start_rank_id == args.start_rank_id
+        assert model.neuron_config.local_ranks_size == args.local_ranks_size
+
+    do_speculate = model.neuron_config.speculation_length > 0
     loading_end_time = time.monotonic()
     model_loading_time = loading_end_time - loading_start_time
     print(f"Total model loading time: {model_loading_time} seconds")
 
     if do_speculate:
         print("\nLoading draft model to Neuron...")
-        draft_model = model_cls.from_pretrained(args.draft_model_path)
+        draft_model = NeuronModelForCausalLM.from_pretrained(args.draft_model_path)
 
     if args.enable_torch_dist:
         torch.distributed.barrier()
 
     # Load tokenizer.
-    tokenizer = load_tokenizer(args.model_path, neuron_config)
+    tokenizer = load_tokenizer(args.model_path, model.neuron_config)
 
     # Configure generation config.
     generation_config = GenerationConfig.from_pretrained(args.model_path)
@@ -290,8 +295,6 @@ def run_generation(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-type", type=str, choices=MODEL_TYPES.keys(), required=True)
-    parser.add_argument("--task-type", type=str, required=True)
     parser.add_argument("--enable-torch-dist", action="store_true")
     subparsers = parser.add_subparsers(dest="action", required=True)
 
@@ -305,9 +308,6 @@ def main():
     setup_run_parser(run_parser)
 
     args = parser.parse_args()
-    assert (
-        args.task_type in MODEL_TYPES[args.model_type]
-    ), f"Unsupported task: {args.model_type}/{args.task_type}"
 
     if args.enable_torch_dist:
         torch.distributed.init_process_group(
@@ -319,13 +319,12 @@ def main():
         args.start_rank_id = node_rank * args.local_ranks_size
         torch.distributed.barrier()
 
-    model_cls = MODEL_TYPES[args.model_type][args.task_type]
     if args.action == "simple-export":
-        simplified_export_model(model_cls, args)
+        simplified_export_model(args)
     elif args.action == "export":
-        export_model(model_cls, args)
+        export_model(args)
     elif args.action == "run":
-        run_inference(model_cls, args)
+        run_inference(args)
 
 
 if __name__ == "__main__":

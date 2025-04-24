@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-inference_demo  --model-type llama --task-type causal-lm export \
+inference_demo  export \
                 --model-path ./Llama-3.2-1B-Instruct/ \
                 --compiled-model-path Llama-3.2-1B-Instruct-traced \
                 --torch-dtype bfloat16 \
@@ -20,7 +20,7 @@ inference_demo  --model-type llama --task-type causal-lm export \
 # This is a classic example of a logical fallacy called "appeal to appearance" or "appeal to taste."
 # It is a mistake to assume that the color of the sky is blue because it appears blue to us.
 # The color of the sky is actually
-inference_demo  --model-type llama --task-type causal-lm run \
+inference_demo  run \
                 --model-path ./Llama-3.2-1B-Instruct-traced/ \
                 --max-new-tokens 64 \
                 --top-k 1 \

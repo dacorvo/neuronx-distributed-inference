@@ -9,8 +9,6 @@ from typing import Union
 
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
-from neuronx_distributed_inference.utils.constants import *
-
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 

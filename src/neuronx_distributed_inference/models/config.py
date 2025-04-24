@@ -57,7 +57,7 @@ class NxDNeuronConfig(NeuronConfig):
                  max_batch_size: Optional[int] = None,
                  is_continuous_batching: Optional[bool] = False,
                  speculation_length: Optional[int] = 0,
-                 seq_len: Optional[int] = 128,
+                 sequence_length: Optional[int] = 128,
                  tp_degree: Optional[int] = 1,
                  ep_degree: Optional[int] = 1,
                  pp_degree: Optional[int] = 1,
@@ -86,18 +86,21 @@ class NxDNeuronConfig(NeuronConfig):
                  on_device_sampling: Optional[bool] = False,
                  max_topk: Optional[int] = 256,
                  start_rank_id: Optional[int] = 0,
-                 local_ranks_size: Optional[int] = None) -> None:
+                 local_ranks_size: Optional[int] = None,
+                 capacity_factor: float = None,
+                 glu_mlp: bool = True,
+                 ) -> None:
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
         # Basic config for inference in NxD
         self.batch_size = batch_size
-        self.seq_len = seq_len
+        self.sequence_length = sequence_length
         self.tp_degree = tp_degree
         self.torch_dtype = torch_dtype
         if isinstance(self.torch_dtype, str):
             self.torch_dtype = to_torch_dtype(self.torch_dtype)
-        self.n_active_tokens = self.seq_len if n_active_tokens is None else n_active_tokens
+        self.n_active_tokens = sequence_length if n_active_tokens is None else n_active_tokens
         self.output_logits = output_logits
 
         self.padding_side = padding_side
@@ -109,7 +112,7 @@ class NxDNeuronConfig(NeuronConfig):
         # fallback to sequence_length is for compatibility with vllm
         self.max_context_length = max_context_length
         if self.max_context_length is None:
-            self.max_context_length = seq_len
+            self.max_context_length = sequence_length
 
         # Graph transforms
         self.fused_qkv = fused_qkv
@@ -173,6 +176,10 @@ class NxDNeuronConfig(NeuronConfig):
         self.cc_pipeline_tiling_factor = cc_pipeline_tiling_factor
         self.target = target
 
+        # MoE specific
+        self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
+        self.glu_mlp = glu_mlp
+
 
     @property
     def world_size(self) -> int:
@@ -190,20 +197,3 @@ class NxDNeuronConfig(NeuronConfig):
         Can be overridden by subclasses to specify weights that should not be optimized.
         """
         return []
-
-
-@register_neuron_config
-class MoENeuronConfig(NxDNeuronConfig):
-    """
-    Base class for mixture of experts (MoE) config on Neuron.
-    """
-
-    def __init__(
-        self,
-        capacity_factor: float = None,
-        glu_mlp: bool = True,
-        **kwargs,
-    ) -> None:
-        self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
-        self.glu_mlp = glu_mlp
-        super().__init__(**kwargs)

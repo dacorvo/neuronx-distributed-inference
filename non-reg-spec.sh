@@ -1,5 +1,5 @@
 #!/bin/bash
-inference_demo  --model-type llama --task-type causal-lm export \
+inference_demo  export \
                 --model-path ./Llama-3.1-8B-Instruct/ \
                 --compiled-model-path Llama-3.1-8B-Instruct-traced \
                 --torch-dtype bfloat16 \
@@ -11,7 +11,7 @@ inference_demo  --model-type llama --task-type causal-lm export \
                 --on-device-sampling \
                 --enable-bucketing \
                 --pad-token-id 128001
-inference_demo  --model-type llama --task-type causal-lm export \
+inference_demo  export \
                 --model-path ./Llama-3.2-1B-Instruct/ \
                 --compiled-model-path Llama-3.2-1B-Instruct-draft-traced \
                 --torch-dtype bfloat16 \
@@ -27,7 +27,7 @@ inference_demo  --model-type llama --task-type causal-lm export \
 # named after the British physicist Lord Rayleigh, who first described it in the late 19th century.
 # Rayleigh scattering is the scattering of light by small particles or molecules in the atmosphere,
 # such as nitrogen and oxygen molecules. When sunlight enters the Earth's atmosphere, it encounters
-inference_demo  --model-type llama --task-type causal-lm run \
+inference_demo  run \
                 --model-path Llama-3.1-8B-Instruct-traced \
                 --draft-model-path Llama-3.2-1B-Instruct-draft-traced \
                 --max-new-tokens 64 \
