@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 inference_demo  --model-type mixtral --task-type causal-lm simple-export \
-                --model-path ./Mixtral-tiny/ \
+                --model-path dacorvo/Mixtral-tiny \
                 --compiled-model-path Mixtral-tiny-traced-simple \
                 --batch-size 4 \
                 --auto-cast-type bfloat16 \

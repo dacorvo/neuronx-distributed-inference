@@ -2,11 +2,13 @@ import copy
 import logging
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import List, Optional, Tuple, Union
 
 import neuronx_distributed as nxd
 import torch
 import torch_xla.core.xla_model as xm
+from huggingface_hub import snapshot_download
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
@@ -15,7 +17,7 @@ from neuronx_distributed.parallel_layers.mappings import (
     gather_from_sequence_parallel_region,
 )
 from torch import nn
-from transformers import PretrainedConfig
+from transformers import AutoConfig, PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from neuronx_distributed_inference.models.config import NxDNeuronConfig
@@ -830,6 +832,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         cls,
         model_id: Union[str, "Path"],
         config: "PretrainedConfig",
+        revision: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
+        cache_dir: Optional[str] = None,
+        force_download: Optional[bool] = False,
+        subfolder: Optional[str] = "",
+        local_files_only: Optional[bool] = False,
+        trust_remote_code: Optional[bool] = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         neuron_config = cls.get_neuron_config_cls().from_pretrained(model_id)
@@ -851,6 +860,22 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         checkpoint_path = os.path.join(model_id, cls.CHECKPOINT_DIR)
         if os.path.exists(checkpoint_path):
             model._load_weights(checkpoint_path)
+        elif neuron_config.checkpoint_id is not None:
+            # Fetch weights from the checkpoint
+            checkpoint_dir = TemporaryDirectory()
+            os.chmod(checkpoint_dir.name, 0o775)
+            snapshot_download(
+                repo_id=neuron_config.checkpoint_id,
+                revision=neuron_config.checkpoint_revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+                local_dir=checkpoint_dir.name,
+                allow_patterns=["*.safetensors*"],
+            )
+            model._load_weights(checkpoint_dir.name)
+            checkpoint_dir.cleanup()
         else:
             logger.warning(
                 f"Checkpoint file {checkpoint_path} not found. Weights will not be loaded."
@@ -872,10 +897,12 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         trust_remote_code: Optional[bool] = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        if not os.path.isdir(model_id):
-            raise ValueError(
-                f"Model directory {model_id} does not exist. Please provide a valid path."
-            )
+        config = AutoConfig.from_pretrained(model_id,
+                                            token=token,
+                                            revision=revision,
+                                            cache_dir=cache_dir,
+                                            force_download=force_download,
+                                            trust_remote_code=trust_remote_code)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         config.torch_dtype = neuron_config.torch_dtype
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
@@ -901,7 +928,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             token_generation_model=token_generation_model,
             speculation_model=speculation_model,
         )
-        model._load_weights(model_id)
         return model
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
